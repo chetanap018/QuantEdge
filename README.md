@@ -1,5 +1,11 @@
 # Backtesting Framework
 
+<p align="center">
+  <img src="assets/logo.png" alt="QuantEdge logo" width="80" height="80">
+</p>
+
+<p align="center"><strong>QuantEdge</strong></p>
+
 A modular Python backtesting framework for trading strategies using Angel One SmartAPI for data and Zerodha's brokerage structure for realistic cost simulation — now with a built-in web dashboard.
 
 ## Backtest Studio (Web UI)
