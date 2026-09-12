@@ -62,6 +62,27 @@ DEFAULT_RISK_PCT = 0.02  # 2% risk per trade (for risk-based sizing)
 DEFAULT_RISK_PER_UNIT = 10.0  # Risk amount per unit for stop-loss calculation
 
 # ============================================================
+# Execution Model (correctness)
+# ============================================================
+DEFAULT_FILL_POLICY = "next_open"       # "next_open" (realistic) | "same_close" (legacy)
+DEFAULT_SLIPPAGE_MODE = "fixed"         # "fixed" (bps) | "volatility"
+DEFAULT_SLIPPAGE_BPS = 5.0              # 5 bps fixed slippage per fill
+DEFAULT_VOL_SLIPPAGE_FACTOR = 0.5       # vol-based: k * (high - low)
+DEFAULT_LIQUIDITY_CHECK = False         # cap fills at max_participation * volume
+DEFAULT_MAX_PARTICIPATION = 0.05        # max 5% of a bar's volume
+DEFAULT_PARTIAL_FILLS = True            # scale down instead of cancelling
+
+# ============================================================
+# Risk Management (engine-enforced exits)
+# ============================================================
+DEFAULT_STOP_LOSS_PCT = 0.05            # 5% adverse move closes the position
+DEFAULT_TAKE_PROFIT_PCT = None          # optional fixed profit target
+DEFAULT_TRAILING_STOP_PCT = None        # e.g. 0.04 = trail 4% below the peak
+DEFAULT_TRAILING_ACTIVATION_PCT = 0.0   # profit needed before trailing engages
+DEFAULT_USE_STRATEGY_LEVELS = True      # prefer long_stop/long_target columns
+DEFAULT_APPLY_SLIPPAGE_TO_RISK_EXITS = True
+
+# ============================================================
 # Data Fetching
 # ============================================================
 CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache")
