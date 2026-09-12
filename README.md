@@ -14,7 +14,7 @@ No more editing `backtest_config.py` for every run — configure everything in t
 
 ```bash
 python3 app.py
-# open http://127.0.0.1:5000
+# open http://127.0.0.1:5001
 ```
 
 The UI reads its **defaults from `backtest_config.py`** (it stays the single source of truth), but every parameter — symbol, exchange, timeframe, dates, capital, sizing, segment and all strategy parameters — can be changed live in the sidebar. `backtest_config.py` and the CLI (`python main.py`) keep working exactly as before.
@@ -149,4 +149,4 @@ Plus statutory charges: STT, Exchange Txn, GST (18%), SEBI fees, Stamp Duty.
 - If Angel One API is unavailable, synthetic data is generated for testing
 - Data is cached in `cache/` to avoid repeated API calls
 - Trade logs are exported to `output/` as CSV files
-- Equity curve plots are saved as PNG files
+- Equity curve plots are saved as PNG file
