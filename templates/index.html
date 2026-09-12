@@ -1,0 +1,1260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QuantEdge - Strategy Backtesting Studio</title>
+<script src="/static/echarts.min.js"></script>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+      <img class="brand-logo" src="{{ url_for('static', filename='logo.png') }}" alt="QuantEdge logo" width="38" height="38">
+    <div>
+                <h1>{{ project_name }}</h1>
+      <p>Strategy backtesting &middot; Zerodha charges &middot; Angel One data</p>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <div class="status-pill" id="statusPill">Engine ready</div>
+    <button class="btn-run" id="runBtn">Run Backtest</button>
+  </div>
+</header>
+
+<img class="hero-logo" src="{{ url_for('static', filename='logo.png') }}" alt="QuantEdge logo" width="120" height="120">
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="side-title">Configuration</div>
+    <div class="field">
+      <label for="fSymbol">Symbol</label>
+      <input type="text" id="fSymbol" placeholder="RELIANCE" autocomplete="off">
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label for="fExchange">Exchange</label>
+        <select id="fExchange"></select>
+      </div>
+      <div class="field">
+        <label for="fTimeframe">Timeframe</label>
+        <select id="fTimeframe"></select>
+      </div>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label for="fStart">Start date</label>
+        <input type="date" id="fStart">
+      </div>
+      <div class="field">
+        <label for="fEnd">End date</label>
+        <input type="date" id="fEnd">
+      </div>
+    </div>
+    <div class="field">
+      <label for="fCapital">Initial capital (&#8377;)</label>
+      <input type="number" id="fCapital" min="1000" step="1000">
+    </div>
+    <div class="field">
+      <label for="fSegment">Segment (brokerage)</label>
+      <select id="fSegment"></select>
+    </div>
+    <div class="field">
+      <label for="fSizing">Position sizing</label>
+      <select id="fSizing"></select>
+    </div>
+    <div id="sizingFields"></div>
+    <div class="side-title" style="margin-top:16px">Strategies</div>
+    <div id="strategyList"></div>
+    <button class="btn-ghost" id="resetBtn">Reset to backtest_config.py defaults</button>
+  </aside>
+
+  <main class="content">
+    <div id="resultsArea" style="display:none">
+      <div class="results-head">
+        <h2><span id="runTitle">Results</span><small id="runMeta"></small></h2>
+        <select class="pill-select" id="strategyPick"></select>
+      </div>
+      <div id="kpiGrid"></div>
+      <nav class="tabs">
+        <button class="tab-btn active" data-tab="overview">Overview</button>
+        <button class="tab-btn" data-tab="price">Price &amp; Signals</button>
+        <button class="tab-btn" data-tab="trades">Trades</button>
+        <button class="tab-btn" data-tab="charges">Charges</button>
+        <button class="tab-btn" data-tab="compare">Compare</button>
+      </nav>
+
+      <section class="panel active" id="tab-overview">
+        <div class="card">
+          <h3>Equity Curve</h3>
+          <div class="card-sub">Capital + open P&amp;L after every bar &middot; all strategies overlaid</div>
+          <div class="chart chart-tall" id="chartEquity"></div>
+        </div>
+        <div class="grid-2">
+          <div class="card">
+            <h3>Drawdown</h3>
+            <div class="card-sub">Decline from running equity peak</div>
+            <div class="chart" id="chartDrawdown"></div>
+          </div>
+          <div class="card">
+            <h3>Long vs Short P&amp;L</h3>
+            <div class="card-sub">Net profit split by direction</div>
+            <div class="chart" id="chartSide"></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Monthly Returns</h3>
+          <div class="card-sub">Return per calendar month from month-end equity</div>
+          <div class="chart chart-sm" id="chartMonthly"></div>
+        </div>
+        <div class="card">
+          <h3>Trade Quality</h3>
+          <div class="chips" id="statChips"></div>
+        </div>
+      </section>
+
+      <section class="panel" id="tab-price">
+        <div class="card">
+          <h3>Price with Trade Markers</h3>
+          <div class="card-sub">Candles + volume &middot; entries and exits for the selected strategy</div>
+          <div class="chart chart-tall" id="chartPrice"></div>
+        </div>
+      </section>
+
+      <section class="panel" id="tab-trades">
+        <div class="card">
+          <h3>Trade P&amp;L</h3>
+          <div class="card-sub">Net profit per trade, in sequence</div>
+          <div class="chart chart-sm" id="chartPnl"></div>
+        </div>
+        <div class="card">
+          <div class="toolbar">
+            <select id="dirFilter">
+              <option value="all">All trades</option>
+              <option value="long">Long only</option>
+              <option value="short">Short only</option>
+            </select>
+            <button class="btn-mini" id="csvBtn">Download CSV</button>
+            <button class="btn-mini" id="jsonBtn">Download JSON</button>
+          </div>
+          <div class="table-wrap">
+            <table id="tradeTable">
+              <thead>
+                <tr>
+                  <th>#</th><th>Entry time</th><th>Exit time</th><th>Dir</th><th>Qty</th>
+                  <th>Entry</th><th>Exit</th><th>Gross P&amp;L</th><th>Charges</th><th>Net P&amp;L</th><th>Return</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" id="tab-charges">
+        <div class="card">
+          <h3>Charges by Component</h3>
+          <div class="card-sub">Stacked per strategy &middot; Zerodha rate card</div>
+          <div class="chart" id="chartCharges"></div>
+        </div>
+        <div class="card">
+          <h3>Selected Strategy Split</h3>
+          <div class="chart chart-sm" id="chartChargesPie"></div>
+        </div>
+      </section>
+
+      <section class="panel" id="tab-compare">
+        <div class="card">
+          <h3>Net Profit Comparison</h3>
+          <div class="chart chart-sm" id="chartCompare"></div>
+        </div>
+        <div class="card">
+          <h3>Metrics Side by Side</h3>
+          <div class="table-wrap">
+            <table id="compareTable">
+              <thead></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div id="emptyState">
+      <div class="big">&#128200;</div>
+      <h2>No backtest yet</h2>
+      <p>Configure symbol, dates, capital and strategies on the left, then hit Run Backtest. Everything you used to edit in backtest_config.py is now right here.</p>
+      <span class="hint">python3 app.py &rarr; open http://127.0.0.1:5000</span>
+    </div>
+  </main>
+</div>
+
+<div id="overlay">
+  <div class="spinner"></div>
+  <p>Running backtest&hellip;</p>
+</div>
+<div id="toast"></div>
+
+<script>
+var STATE = { meta: null, last: null, sel: null, charts: {} }
+var COLORS = ['#4f8cff', '#00d4aa', '#ffb020', '#ff5c7a', '#b57bff', '#8ee36b']
+var CHART_COLORS = ['#4f8cff', '#22d3ee', '#ffb020', '#b57bff', '#8ee36b', '#ff5c7a']
+var RS = String.fromCharCode(8377)
+var NL = String.fromCharCode(10)
+var currentTab = 'overview'
+
+function el(id) { return document.getElementById(id) }
+
+function fmtMoney(v, d) {
+  if (d === undefined) { d = 0 }
+  var neg = v < 0
+  var txt = Math.abs(v).toLocaleString('en-IN', { maximumFractionDigits: d, minimumFractionDigits: d })
+  if (neg) { return '-' + RS + txt }
+  return RS + txt
+}
+
+function fmtPct(v) { return v.toFixed(2) + '%' }
+
+function fmtHold(h) {
+  if (h === undefined || h === null) { return '-' }
+  if (h >= 48) { return (h / 24).toFixed(1) + ' days' }
+  return h.toFixed(1) + ' h'
+}
+
+function fmtDate(iso) {
+  var d = iso.slice(0, 10)
+  var t = iso.slice(11, 16)
+  if (t === '00:00') { return d }
+  return d + ' ' + t
+}
+
+function compactMoney(v) {
+  var a = Math.abs(v)
+  var sign = v < 0 ? '-' : ''
+  if (a >= 10000000) { return sign + RS + (a / 10000000).toFixed(2) + 'Cr' }
+  if (a >= 100000) { return sign + RS + (a / 100000).toFixed(2) + 'L' }
+  if (a >= 1000) { return sign + RS + (a / 1000).toFixed(1) + 'K' }
+  return sign + RS + a.toFixed(0)
+}
+
+function toast(msg, kind) {
+  var t = el('toast')
+  t.textContent = msg
+  t.className = kind || ''
+  t.style.display = 'block'
+  setTimeout(function() { t.style.display = 'none' }, 3800)
+}
+
+function showLoading(b) {
+  var o = el('overlay')
+  if (b) { o.classList.add('show') } else { o.classList.remove('show') }
+}
+
+function setStatus(html) { el('statusPill').innerHTML = html }
+
+function fillSelect(id, options, val) {
+  var sel = el(id)
+  sel.innerHTML = ''
+  var i = 0
+  while (i < options.length) {
+    var opt = document.createElement('option')
+    opt.value = options[i]
+    opt.textContent = options[i]
+    if (options[i] === val) { opt.selected = true }
+    sel.appendChild(opt)
+    i = i + 1
+  }
+}
+
+function buildStrategies(meta) {
+  var wrap = el('strategyList')
+  wrap.innerHTML = ''
+  var defStrats = meta.defaults.strategies || []
+  for (var key in meta.strategies) {
+    var info = meta.strategies[key]
+    var card = document.createElement('div')
+    card.className = 'strat-card'
+    card.setAttribute('data-key', key)
+    var head = document.createElement('label')
+    head.className = 'strat-head'
+    var box = document.createElement('input')
+    box.type = 'checkbox'
+    box.className = 'strat-check'
+    var nm = document.createElement('span')
+    nm.className = 'strat-name'
+    nm.textContent = info.name
+    head.appendChild(box)
+    head.appendChild(nm)
+    var tog = document.createElement('button')
+    tog.type = 'button'
+    tog.className = 'strat-toggle'
+    tog.textContent = 'params'
+    var holder = document.createElement('div')
+    holder.className = 'strat-params'
+    for (var pname in info.params) {
+      var spec = info.params[pname]
+      var fdiv = document.createElement('div')
+      fdiv.className = 'field'
+      var lab = document.createElement('label')
+      lab.textContent = spec.label
+      fdiv.appendChild(lab)
+      var inp = document.createElement('input')
+      inp.setAttribute('data-param', pname)
+      inp.setAttribute('data-type', spec.type)
+      if (spec.type === 'bool') {
+        inp.type = 'checkbox'
+        if (spec.default) { inp.checked = true }
+      } else {
+        if (spec.type === 'int') {
+          inp.type = 'number'
+          inp.step = '1'
+        } else {
+          if (spec.type === 'float') {
+            inp.type = 'number'
+            inp.step = 'any'
+          } else {
+            inp.type = 'text'
+          }
+        }
+        inp.value = spec.default
+      }
+      fdiv.appendChild(inp)
+      holder.appendChild(fdiv)
+    }
+    card.appendChild(head)
+    card.appendChild(tog)
+    card.appendChild(holder)
+    if (defStrats.indexOf(key) >= 0) {
+      box.checked = true
+      card.classList.add('on')
+    }
+    box.addEventListener('change', function(ev) {
+      var cb = ev.currentTarget
+      var c = cb.closest('.strat-card')
+      if (cb.checked) { c.classList.add('on') } else { c.classList.remove('on') }
+    })
+    tog.addEventListener('click', function(ev) {
+      var b = ev.currentTarget
+      var h = b.parentElement.querySelector('.strat-params')
+      h.classList.toggle('open')
+    })
+    wrap.appendChild(card)
+  }
+}
+
+function buildSizingFields(method) {
+  var wrap = el('sizingFields')
+  var d = STATE.meta.defaults
+  var html = ''
+  if (method === 'fixed_quantity') {
+    html = '<div class="field"><label>Quantity per trade</label><input type="number" id="szQty" min="1" value="' + d.fixed_quantity + '"></div>'
+  }
+  if (method === 'fixed_capital_pct') {
+    var pctDisp = Math.round((d.capital_pct || 0.1) * 10000) / 100
+    html = '<div class="field"><label>Capital % per trade</label><input type="number" id="szPct" min="0.1" max="100" step="0.5" value="' + pctDisp + '"></div>'
+  }
+  if (method === 'risk_based') {
+    var rp = Math.round((d.risk_pct || 0.02) * 10000) / 100
+    html = '<div class="field"><label>Risk % per trade</label><input type="number" id="szRiskPct" min="0.1" step="0.1" value="' + rp + '"></div>'
+    html = html + '<div class="field"><label>Risk per unit (' + RS + ')</label><input type="number" id="szRiskUnit" min="0.01" step="0.5" value="' + (d.risk_per_unit || 10) + '"></div>'
+  }
+  wrap.innerHTML = html
+}
+
+function onSizingChange() { buildSizingFields(el('fSizing').value) }
+
+function onReset() {
+  var meta = STATE.meta
+  el('fSymbol').value = meta.defaults.symbol
+  el('fStart').value = meta.defaults.start_date
+  el('fEnd').value = meta.defaults.end_date
+  el('fCapital').value = meta.defaults.capital
+  el('fExchange').value = meta.defaults.exchange
+  el('fTimeframe').value = meta.defaults.timeframe
+  el('fSegment').value = meta.defaults.segment
+  el('fSizing').value = meta.defaults.sizing
+  buildSizingFields(meta.defaults.sizing)
+  buildStrategies(meta)
+  toast('Defaults restored', 'ok')
+}
+
+function collectPayload() {
+  var symbol = el('fSymbol').value.trim()
+  if (!symbol) { toast('Enter a symbol', 'err'); return null }
+  var stratItems = []
+  var cards = document.querySelectorAll('.strat-card')
+  var i = 0
+  while (i < cards.length) {
+    var card = cards[i]
+    var box = card.querySelector('.strat-check')
+    if (box.checked) {
+      var key = card.getAttribute('data-key')
+      var params = {}
+      var inputs = card.querySelectorAll('[data-param]')
+      var j = 0
+      while (j < inputs.length) {
+        var inp = inputs[j]
+        var pname = inp.getAttribute('data-param')
+        var ptype = inp.getAttribute('data-type')
+        if (ptype === 'bool') {
+          params[pname] = inp.checked
+        } else {
+          if (inp.value === '') {
+            params[pname] = null
+          } else {
+            if (ptype === 'int') { params[pname] = parseInt(inp.value, 10) }
+            if (ptype === 'float') { params[pname] = parseFloat(inp.value) }
+            if (ptype === 'text') { params[pname] = inp.value }
+          }
+        }
+        j = j + 1
+      }
+      stratItems.push({ name: key, params: params })
+    }
+    i = i + 1
+  }
+  if (stratItems.length === 0) { toast('Select at least one strategy', 'err'); return null }
+  var sp = {}
+  var qEl = el('szQty')
+  if (qEl) { sp.quantity = parseInt(qEl.value, 10) || 10 }
+  var pEl = el('szPct')
+  if (pEl) { sp.pct = (parseFloat(pEl.value) || 100) / 100 }
+  var rEl = el('szRiskPct')
+  if (rEl) { sp.risk_pct = (parseFloat(rEl.value) || 2) / 100 }
+  var uEl = el('szRiskUnit')
+  if (uEl) { sp.risk_per_unit = parseFloat(uEl.value) || 10 }
+  return {
+    symbol: symbol,
+    exchange: el('fExchange').value,
+    timeframe: el('fTimeframe').value,
+    start_date: el('fStart').value,
+    end_date: el('fEnd').value,
+    capital: parseFloat(el('fCapital').value) || 100000,
+    sizing: el('fSizing').value,
+    segment: el('fSegment').value,
+    sizing_params: sp,
+    strategies: stratItems
+  }
+}
+
+function onRun() {
+  var btn = el('runBtn')
+  var payload = collectPayload()
+  if (!payload) { return }
+  btn.disabled = true
+  showLoading(true)
+  setStatus('Running <b>' + payload.symbol + '</b>&hellip;')
+  fetch('/api/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+    .then(function(r) { return r.json() })
+    .then(function(res) {
+      btn.disabled = false
+      showLoading(false)
+      if (!res.ok) {
+        toast(res.error || 'Backtest failed', 'err')
+        setStatus('Run failed')
+        return
+      }
+      STATE.last = res
+      renderRun(res)
+      toast('Done: ' + res.results.length + ' strategies on ' + res.symbol, 'ok')
+    })
+    .catch(function(e) {
+      btn.disabled = false
+      showLoading(false)
+      toast('Request failed: ' + e, 'err')
+      setStatus('Run failed')
+    })
+}
+
+function renderRun(res) {
+  el('resultsArea').style.display = 'block'
+  el('emptyState').style.display = 'none'
+  el('runTitle').textContent = res.symbol
+  el('runMeta').textContent = res.bars + ' bars / ' + res.exchange + ' / ' + res.timeframe + ' / ' + res.start + ' to ' + res.end
+  var pick = el('strategyPick')
+  pick.innerHTML = ''
+  var best = null
+  var bestPnl = -Infinity
+  var i = 0
+  while (i < res.results.length) {
+    var one = res.results[i]
+    if (one.error) { i = i + 1; continue }
+    var opt = document.createElement('option')
+    opt.value = one.key
+    opt.textContent = one.name
+    pick.appendChild(opt)
+    if (one.metrics.net_profit > bestPnl) {
+      bestPnl = one.metrics.net_profit
+      best = one.key
+    }
+    i = i + 1
+  }
+  STATE.sel = best
+  if (best) { pick.value = best }
+  setStatus('Last run: <b>' + res.symbol + '</b> / ' + res.bars + ' bars')
+  pickStrategy(best)
+}
+
+function selResult() {
+  var res = STATE.last
+  if (!res) { return null }
+  var i = 0
+  while (i < res.results.length) {
+    var one = res.results[i]
+    if (one.key === STATE.sel && !one.error) { return one }
+    i = i + 1
+  }
+  return null
+}
+
+function pickStrategy(key) {
+  STATE.sel = key
+  renderKpis()
+  renderTab(currentTab)
+}
+
+function onPickChange(ev) { pickStrategy(ev.currentTarget.value) }
+
+function renderKpis() {
+  var grid = el('kpiGrid')
+  grid.innerHTML = ''
+  var one = selResult()
+  if (!one) { return }
+  var m = one.metrics
+  var ts = one.trade_stats
+  var np = m.net_profit
+  var npCls = np >= 0 ? 'pos' : 'neg'
+  var trCls = m.total_return_pct >= 0 ? 'pos' : 'neg'
+  var ddCls = m.max_drawdown_pct >= 20 ? 'neg' : 'neu'
+  var pfCls = m.profit_factor >= 1 ? 'pos' : 'neg'
+  var capStart = STATE.last.capital
+  var cards = [
+    { label: 'Net Profit', value: fmtMoney(np, 2), cls: npCls, sub: 'vs ' + fmtMoney(capStart, 0) + ' start' },
+    { label: 'Total Return', value: fmtPct(m.total_return_pct), cls: trCls, sub: 'on initial capital' },
+    { label: 'CAGR', value: fmtPct(m.cagr), cls: trCls, sub: 'annualised' },
+    { label: 'Sharpe Ratio', value: String(m.sharpe_ratio), cls: 'neu', sub: 'risk-adjusted' },
+    { label: 'Max Drawdown', value: fmtPct(m.max_drawdown_pct), cls: ddCls, sub: 'peak to trough' },
+    { label: 'Win Rate', value: fmtPct(m.win_rate), cls: 'neu', sub: m.winning_trades + 'W / ' + m.losing_trades + 'L' },
+    { label: 'Profit Factor', value: String(m.profit_factor), cls: pfCls, sub: 'gross W / gross L' },
+    { label: 'Total Trades', value: String(m.total_trades), cls: 'neu', sub: 'avg hold ' + fmtHold(ts.avg_holding_h) },
+    { label: 'Total Charges', value: fmtMoney(m.total_charges, 2), cls: 'neg', sub: 'Zerodha rate card' },
+    { label: 'Final Capital', value: fmtMoney(m.final_capital, 2), cls: npCls, sub: 'ending equity' }
+  ]
+  var i = 0
+  while (i < cards.length) {
+    var c = cards[i]
+    var div = document.createElement('div')
+    div.className = 'kpi'
+    div.innerHTML = '<div class="k-label">' + c.label + '</div><div class="k-value ' + c.cls + '">' + c.value + '</div><div class="k-sub">' + c.sub + '</div>'
+    grid.appendChild(div)
+    i = i + 1
+  }
+}
+
+function onTabClick(ev) {
+  var name = ev.currentTarget.getAttribute('data-tab')
+  var btns = document.querySelectorAll('.tab-btn')
+  var i = 0
+  while (i < btns.length) {
+    var b = btns[i]
+    if (b.getAttribute('data-tab') === name) { b.classList.add('active') } else { b.classList.remove('active') }
+    i = i + 1
+  }
+  var panels = document.querySelectorAll('.panel')
+  var j = 0
+  while (j < panels.length) {
+    var p = panels[j]
+    if (p.id === 'tab-' + name) { p.classList.add('active') } else { p.classList.remove('active') }
+    j = j + 1
+  }
+  currentTab = name
+  renderTab(name)
+}
+
+function renderTab(name) {
+  if (!STATE.last) { return }
+  if (name === 'overview') { renderOverview() }
+  if (name === 'price') { renderPrice() }
+  if (name === 'trades') { renderTrades() }
+  if (name === 'charges') { renderCharges() }
+  if (name === 'compare') { renderCompare() }
+}
+
+function boot() {
+  fetch('/api/strategies')
+    .then(function(r) { return r.json() })
+    .then(function(meta) {
+      STATE.meta = meta
+      fillSelect('fExchange', meta.exchanges, meta.defaults.exchange)
+      fillSelect('fTimeframe', meta.timeframes, meta.defaults.timeframe)
+      fillSelect('fSegment', meta.segments, meta.defaults.segment)
+      fillSelect('fSizing', meta.sizing_methods, meta.defaults.sizing)
+      el('fSymbol').value = meta.defaults.symbol
+      el('fStart').value = meta.defaults.start_date
+      el('fEnd').value = meta.defaults.end_date
+      el('fCapital').value = meta.defaults.capital
+      buildStrategies(meta)
+      buildSizingFields(meta.defaults.sizing)
+      el('fSizing').addEventListener('change', onSizingChange)
+      el('runBtn').addEventListener('click', onRun)
+      el('resetBtn').addEventListener('click', onReset)
+      el('strategyPick').addEventListener('change', onPickChange)
+      el('dirFilter').addEventListener('change', renderTrades)
+      el('csvBtn').addEventListener('click', downloadCsv)
+      el('jsonBtn').addEventListener('click', downloadJson)
+      var tabs = document.querySelectorAll('.tab-btn')
+      var i = 0
+      while (i < tabs.length) {
+        tabs[i].addEventListener('click', onTabClick)
+        i = i + 1
+      }
+      setStatus('Engine ready &middot; defaults from <b>backtest_config.py</b>')
+    })
+    .catch(function(e) {
+      toast('Failed to load config: ' + e, 'err')
+    })
+}
+
+function chart(id) {
+  var c = STATE.charts[id]
+  if (!c) {
+    c = echarts.init(el(id))
+    STATE.charts[id] = c
+  }
+  return c
+}
+
+function axisBits() {
+  return {
+    axisLine: { lineStyle: { color: '#223052' } },
+    axisLabel: { color: '#7c8aa5', fontSize: 10.5, hideOverlap: true },
+    splitLine: { lineStyle: { color: '#141d31' } }
+  }
+}
+
+function tipBits() {
+  return {
+    backgroundColor: '#131c30',
+    borderColor: '#223052',
+    textStyle: { color: '#e5e9f0', fontSize: 12 },
+    confine: true
+  }
+}
+
+function zoomBits() {
+  return [
+    { type: 'inside' },
+    { type: 'slider', height: 16, bottom: 6, borderColor: '#223052', backgroundColor: '#0b1120', fillerColor: 'rgba(79, 140, 255, 0.15)', handleStyle: { color: '#4f8cff' }, textStyle: { color: '#64748b', fontSize: 9 } }
+  ]
+}
+
+function seriesPoints(one) {
+  var pts = []
+  var ds = one.equity.dates
+  var vs = one.equity.values
+  var j = 0
+  while (j < ds.length) {
+    var p = [ds[j], vs[j]]
+    pts.push(p)
+    j = j + 1
+  }
+  return pts
+}
+
+function renderOverview() {
+  var res = STATE.last
+  var series = []
+  var legend = []
+  var i = 0
+  while (i < res.results.length) {
+    var one = res.results[i]
+    if (!one.error) {
+      var color = COLORS[i % COLORS.length]
+      legend.push(one.name)
+      series.push({
+        name: one.name,
+        type: 'line',
+        data: seriesPoints(one),
+        showSymbol: false,
+        lineStyle: { width: 1.6, color: color },
+        itemStyle: { color: color },
+        emphasis: { focus: 'series' }
+      })
+    }
+    i = i + 1
+  }
+  var tip = { trigger: 'axis', valueFormatter: function(v) { return fmtMoney(v, 2) } }
+  var t2 = tipBits()
+  for (var k in t2) { tip[k] = t2[k] }
+  var opt = {
+    backgroundColor: 'transparent',
+    tooltip: tip,
+    legend: { data: legend, textStyle: { color: '#8b9bb4', fontSize: 11 }, top: 0, icon: 'roundRect', itemWidth: 14, itemHeight: 8 },
+    grid: { left: 66, right: 18, top: 32, bottom: 58 },
+    xAxis: { type: 'time', axisLine: { lineStyle: { color: '#223052' } }, axisLabel: { color: '#7c8aa5', fontSize: 10.5, hideOverlap: true } },
+    yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: '#141d31' } }, axisLabel: { color: '#7c8aa5', fontSize: 10.5, formatter: function(v) { return compactMoney(v) } } },
+    dataZoom: zoomBits(),
+    series: series
+  }
+  chart('chartEquity').setOption(opt, true)
+  renderDrawdown()
+  renderSide()
+  renderMonthly()
+  renderChips()
+}
+
+function renderDrawdown() {
+  var one = selResult()
+  if (!one) { return }
+  var ds = one.drawdown.dates
+  var vs = one.drawdown.values
+  var pts = []
+  var i = 0
+  while (i < ds.length) {
+    var p = [ds[i], vs[i]]
+    pts.push(p)
+    i = i + 1
+  }
+  var series = [{
+    name: 'Drawdown %',
+    type: 'line',
+    data: pts,
+    showSymbol: false,
+    lineStyle: { width: 1.4, color: '#ef4444' },
+    itemStyle: { color: '#ef4444' },
+    areaStyle: {
+      color: {
+        type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+        colorStops: [
+          { offset: 0, color: 'rgba(239, 68, 68, 0.30)' },
+          { offset: 1, color: 'rgba(239, 68, 68, 0.02)' }
+        ]
+      }
+    },
+    markPoint: {
+      data: [{ type: 'min', name: 'Max DD' }],
+      symbol: 'pin',
+      symbolSize: 42,
+      itemStyle: { color: '#ef4444' },
+      label: { color: '#fff', fontSize: 9 }
+    }
+  }]
+  var opt = {
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'axis', valueFormatter: function(v) { return v.toFixed(2) + '%' }, backgroundColor: '#131c30', borderColor: '#223052', textStyle: { color: '#e5e9f0', fontSize: 12 }, confine: true },
+    grid: { left: 46, right: 14, top: 16, bottom: 26 },
+    xAxis: { type: 'time', axisLine: { lineStyle: { color: '#223052' } }, axisLabel: { color: '#7c8aa5', fontSize: 10, hideOverlap: true } },
+    yAxis: { type: 'value', splitLine: { lineStyle: { color: '#141d31' } }, axisLabel: { color: '#7c8aa5', fontSize: 10, formatter: function(v) { return v + '%' } } },
+    series: series
+  }
+  chart('chartDrawdown').setOption(opt, true)
+}
+
+function renderSide() {
+  var one = selResult()
+  if (!one) { return }
+  var ts = one.trade_stats
+  var data = [
+    { name: 'Long (' + ts.long.count + ')', value: Math.abs(ts.long.pnl), real: ts.long.pnl, wr: ts.long.win_rate, itemStyle: { color: '#10b981' } },
+    { name: 'Short (' + ts.short.count + ')', value: Math.abs(ts.short.pnl), real: ts.short.pnl, wr: ts.short.win_rate, itemStyle: { color: '#ef4444' } }
+  ]
+  var opt = {
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'item',
+      backgroundColor: '#131c30',
+      borderColor: '#223052',
+      textStyle: { color: '#e5e9f0', fontSize: 12 },
+      confine: true,
+      formatter: function(p) {
+        var d = p.data
+        return d.name + '<br>Net: ' + fmtMoney(d.real, 2) + '<br>Win rate: ' + d.wr.toFixed(1) + '%'
+      }
+    },
+    series: [{
+      type: 'pie',
+      radius: ['46%', '72%'],
+      center: ['50%', '52%'],
+      data: data,
+      itemStyle: { borderColor: '#0f1522', borderWidth: 2 },
+      label: { color: '#8b9bb4', fontSize: 11, formatter: function(p) { return p.name } },
+      labelLine: { lineStyle: { color: '#223052' } }
+    }]
+  }
+  chart('chartSide').setOption(opt, true)
+}
+
+function renderMonthly() {
+  var one = selResult()
+  if (!one) { return }
+  var mr = one.monthly_returns
+  var monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  var years = mr.years
+  var maxAbs = 1
+  var data = []
+  var k = 0
+  while (k < mr.matrix.length) {
+    var cell = mr.matrix[k]
+    var xi = years.indexOf(cell[0])
+    if (xi >= 0) {
+      var d = [xi, cell[1] - 1, cell[2]]
+      data.push(d)
+      var a = Math.abs(cell[2])
+      if (a > maxAbs) { maxAbs = a }
+    }
+    k = k + 1
+  }
+  maxAbs = Math.ceil(maxAbs)
+  var opt = {
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'item',
+      backgroundColor: '#131c30',
+      borderColor: '#223052',
+      textStyle: { color: '#e5e9f0', fontSize: 12 },
+      confine: true,
+      formatter: function(p) {
+        var yr = years[p.value[0]]
+        var mn = monthLabels[p.value[1]]
+        return yr + ' ' + mn + ': ' + fmtPct(p.value[2])
+      }
+    },
+    grid: { left: 42, right: 10, top: 10, bottom: 44 },
+    xAxis: { type: 'category', data: years, axisLine: { lineStyle: { color: '#223052' } }, axisTick: { show: false }, axisLabel: { color: '#7c8aa5', fontSize: 10.5 } },
+    yAxis: { type: 'category', data: monthLabels, axisLine: { lineStyle: { color: '#223052' } }, axisTick: { show: false }, axisLabel: { color: '#7c8aa5', fontSize: 10 } },
+    visualMap: {
+      min: -maxAbs,
+      max: maxAbs,
+      calculable: true,
+      orient: 'horizontal',
+      left: 'center',
+      bottom: 2,
+      itemHeight: 55,
+      textStyle: { color: '#64748b', fontSize: 9 },
+      inRange: { color: ['#dc2626', '#1c2433', '#10b981'] }
+    },
+    series: [{
+      type: 'heatmap',
+      data: data,
+      label: { show: true, fontSize: 9, color: '#dbe4f3', formatter: function(p) { return p.value[2] } }
+    }]
+  }
+  chart('chartMonthly').setOption(opt, true)
+}
+
+function renderChips() {
+  var one = selResult()
+  var wrap = el('statChips')
+  wrap.innerHTML = ''
+  if (!one) { return }
+  var ts = one.trade_stats
+  var m = one.metrics
+  var chips = [
+    ['Best trade', fmtMoney(ts.best_trade, 2)],
+    ['Worst trade', fmtMoney(ts.worst_trade, 2)],
+    ['Avg win', fmtMoney(ts.avg_win, 2)],
+    ['Avg loss', fmtMoney(ts.avg_loss, 2)],
+    ['Avg holding', fmtHold(ts.avg_holding_h)],
+    ['Win streak', String(ts.max_consec_wins)],
+    ['Loss streak', String(ts.max_consec_losses)],
+    ['Long', ts.long.count + ' trades / ' + fmtMoney(ts.long.pnl, 0) + ' / ' + ts.long.win_rate.toFixed(1) + '%'],
+    ['Short', ts.short.count + ' trades / ' + fmtMoney(ts.short.pnl, 0) + ' / ' + ts.short.win_rate.toFixed(1) + '%'],
+    ['Charges', fmtMoney(m.total_charges, 2)]
+  ]
+  var i = 0
+  while (i < chips.length) {
+    var c = document.createElement('span')
+    c.className = 'chip'
+    c.innerHTML = chips[i][0] + ': <b>' + chips[i][1] + '</b>'
+    wrap.appendChild(c)
+    i = i + 1
+  }
+}
+
+function renderPrice() {
+  var res = STATE.last
+  var ohlc = res.ohlc
+  var cats = []
+  var candle = []
+  var vols = []
+  var tmap = {}
+  var i = 0
+  while (i < ohlc.length) {
+    var b = ohlc[i]
+    cats.push(fmtDate(b.t))
+    tmap[b.t] = i
+    var row = [b.o, b.c, b.l, b.h]
+    candle.push(row)
+    var vc = 'rgba(239, 68, 68, 0.5)'
+    if (b.c >= b.o) { vc = 'rgba(16, 185, 129, 0.5)' }
+    var vb = { value: b.v, itemStyle: { color: vc } }
+    vols.push(vb)
+    i = i + 1
+  }
+  var longPts = []
+  var shortPts = []
+  var exitPts = []
+  var one = selResult()
+  if (one) {
+    i = 0
+    while (i < one.markers.length) {
+      var mk = one.markers[i]
+      var x = tmap[mk.time]
+      if (x !== undefined) {
+        if (mk.type === 'entry') {
+          if (mk.direction === 'long') {
+            var p1 = { value: [x, mk.price] }
+            longPts.push(p1)
+          } else {
+            var p2 = { value: [x, mk.price] }
+            shortPts.push(p2)
+          }
+        } else {
+          var p3 = { value: [x, mk.price] }
+          exitPts.push(p3)
+        }
+      }
+      i = i + 1
+    }
+  }
+  var opt = {
+    backgroundColor: 'transparent',
+    animation: false,
+    axisPointer: { link: [{ xAxisIndex: 'all' }], label: { backgroundColor: '#223052' } },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' }, backgroundColor: '#131c30', borderColor: '#223052', textStyle: { color: '#e5e9f0', fontSize: 12 }, confine: true },
+    legend: { data: ['Price', 'Long entry', 'Short entry', 'Exit'], textStyle: { color: '#8b9bb4', fontSize: 11 }, top: 0, icon: 'roundRect', itemWidth: 14, itemHeight: 8 },
+    grid: [
+      { left: 62, right: 16, top: 28, height: '56%' },
+      { left: 62, right: 16, top: '76%', height: '14%' }
+    ],
+    xAxis: [
+      { type: 'category', data: cats, gridIndex: 0, axisLine: { lineStyle: { color: '#223052' } }, axisLabel: { show: false }, axisTick: { show: false }, min: 'dataMin', max: 'dataMax' },
+      { type: 'category', data: cats, gridIndex: 1, axisLine: { lineStyle: { color: '#223052' } }, axisLabel: { color: '#7c8aa5', fontSize: 10 }, axisTick: { show: false }, min: 'dataMin', max: 'dataMax' }
+    ],
+    yAxis: [
+      { scale: true, gridIndex: 0, splitLine: { lineStyle: { color: '#141d31' } }, axisLabel: { color: '#7c8aa5', fontSize: 10 } },
+      { gridIndex: 1, splitLine: { show: false }, axisLabel: { color: '#7c8aa5', fontSize: 9, formatter: function(v) { return compactMoney(v) } } }
+    ],
+    dataZoom: [
+      { type: 'inside', xAxisIndex: [0, 1] },
+      { type: 'slider', xAxisIndex: [0, 1], height: 16, bottom: 4, borderColor: '#223052', backgroundColor: '#0b1120', fillerColor: 'rgba(79, 140, 255, 0.15)', handleStyle: { color: '#4f8cff' }, textStyle: { color: '#64748b', fontSize: 9 } }
+    ],
+    series: [
+      { name: 'Price', type: 'candlestick', data: candle, xAxisIndex: 0, yAxisIndex: 0, itemStyle: { color: '#10b981', color0: '#ef4444', borderColor: '#10b981', borderColor0: '#ef4444' } },
+      { name: 'Volume', type: 'bar', data: vols, xAxisIndex: 1, yAxisIndex: 1 },
+      { name: 'Long entry', type: 'scatter', data: longPts, xAxisIndex: 0, yAxisIndex: 0, symbol: 'triangle', symbolSize: 12, itemStyle: { color: '#10b981' }, z: 10 },
+      { name: 'Short entry', type: 'scatter', data: shortPts, xAxisIndex: 0, yAxisIndex: 0, symbol: 'triangle', symbolRotate: 180, symbolSize: 12, itemStyle: { color: '#ef4444' }, z: 10 },
+      { name: 'Exit', type: 'scatter', data: exitPts, xAxisIndex: 0, yAxisIndex: 0, symbol: 'circle', symbolSize: 7, itemStyle: { color: '#94a3b8' }, z: 9 }
+    ]
+  }
+  chart('chartPrice').setOption(opt, true)
+}
+
+function fmtBy(kind, v) {
+  if (v === undefined || v === null) { return '-' }
+  if (kind === 'money2') { return fmtMoney(v, 2) }
+  if (kind === 'pct') { return fmtPct(v) }
+  if (kind === 'num2') { return v.toFixed(2) }
+  if (kind === 'int') { return String(v) }
+  if (kind === 'hold') { return fmtHold(v) }
+  return String(v)
+}
+
+function renderTrades() {
+  var one = selResult()
+  if (!one) { return }
+  var trades = one.trades
+  var filter = el('dirFilter').value
+  var cats = []
+  var data = []
+  var i = 0
+  while (i < trades.length) {
+    var t = trades[i]
+    cats.push(String(i + 1))
+    if (filter === 'all' || t.direction === filter) {
+      var color = '#10b981'
+      if (t.net_pnl < 0) { color = '#ef4444' }
+      var pt = { value: t.net_pnl, itemStyle: { color: color } }
+      data.push(pt)
+    } else {
+      data.push({ value: 0, itemStyle: { color: 'rgba(60, 72, 96, 0.35)' } })
+    }
+    i = i + 1
+  }
+  var opt = {
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'axis', valueFormatter: function(v) { return fmtMoney(v, 2) }, backgroundColor: '#131c30', borderColor: '#223052', textStyle: { color: '#e5e9f0', fontSize: 12 }, confine: true },
+    grid: { left: 66, right: 14, top: 14, bottom: 26 },
+    xAxis: { type: 'category', data: cats, axisLine: { lineStyle: { color: '#223052' } }, axisLabel: { color: '#64748b', fontSize: 9, interval: Math.floor(cats.length / 12) || 0 } },
+    yAxis: { type: 'value', splitLine: { lineStyle: { color: '#141d31' } }, axisLabel: { color: '#7c8aa5', fontSize: 10, formatter: function(v) { return compactMoney(v) } } },
+    series: [{ type: 'bar', data: data, barMaxWidth: 14 }]
+  }
+  chart('chartPnl').setOption(opt, true)
+  renderTradeTable(one, filter)
+}
+
+function renderTradeTable(one, filter) {
+  var tbody = el('tradeTable').getElementsByTagName('tbody')[0]
+  var rows = []
+  var i = 0
+  var n = 0
+  var cap = STATE.last.capital
+  while (i < one.trades.length) {
+    var t = one.trades[i]
+    i = i + 1
+    if (filter !== 'all' && t.direction !== filter) { continue }
+    n = n + 1
+    var cls = 'dir-long'
+    if (t.direction === 'short') { cls = 'dir-short' }
+    var pnlCls = t.net_pnl >= 0 ? 'pos' : 'neg'
+    var retPct = (t.net_pnl / cap * 100).toFixed(2)
+    var row = '<tr>'
+    row = row + '<td>' + n + '</td>'
+    row = row + '<td>' + fmtDate(t.entry_time) + '</td>'
+    row = row + '<td>' + fmtDate(t.exit_time) + '</td>'
+    row = row + '<td class="' + cls + '">' + t.direction.toUpperCase() + '</td>'
+    row = row + '<td>' + t.quantity + '</td>'
+    row = row + '<td>' + t.entry_price.toFixed(2) + '</td>'
+    row = row + '<td>' + t.exit_price.toFixed(2) + '</td>'
+    row = row + '<td>' + fmtMoney(t.gross_pnl, 2) + '</td>'
+    row = row + '<td>' + fmtMoney(t.total_charges, 2) + '</td>'
+    row = row + '<td class="' + pnlCls + '">' + fmtMoney(t.net_pnl, 2) + '</td>'
+    row = row + '<td class="' + pnlCls + '">' + retPct + '%</td>'
+    row = row + '</tr>'
+    rows.push(row)
+  }
+  if (rows.length === 0) {
+    rows.push('<tr><td colspan="11" style="text-align:center;color:#64748b">No trades</td></tr>')
+  }
+  tbody.innerHTML = rows.join('')
+}
+
+function renderCharges() {
+  var res = STATE.last
+  var comps = ['brokerage', 'stt', 'exchange_charges', 'gst', 'sebi_charges', 'stamp_duty']
+  var compLabels = { brokerage: 'Brokerage', stt: 'STT', exchange_charges: 'Exchange', gst: 'GST', sebi_charges: 'SEBI', stamp_duty: 'Stamp Duty' }
+  var names = []
+  var totals = []
+  var i = 0
+  while (i < res.results.length) {
+    var one = res.results[i]
+    if (!one.error) {
+      names.push(one.name)
+      totals.push(one.charges_totals)
+    }
+    i = i + 1
+  }
+  var series = []
+  var ci = 0
+  while (ci < comps.length) {
+    var comp = comps[ci]
+    var vals = []
+    var ni = 0
+    while (ni < names.length) {
+      var tot = totals[ni]
+      vals.push(tot[comp])
+      ni = ni + 1
+    }
+    var color = CHART_COLORS[ci % CHART_COLORS.length]
+    series.push({ name: compLabels[comp], type: 'bar', stack: 'c', data: vals, barMaxWidth: 30, itemStyle: { color: color } })
+    ci = ci + 1
+  }
+  var opt = {
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: function(v) { return fmtMoney(v, 2) }, backgroundColor: '#131c30', borderColor: '#223052', textStyle: { color: '#e5e9f0', fontSize: 12 }, confine: true },
+    legend: { textStyle: { color: '#8b9bb4', fontSize: 10.5 }, top: 0, icon: 'roundRect', itemWidth: 14, itemHeight: 8 },
+    grid: { left: 120, right: 24, top: 30, bottom: 14 },
+    xAxis: { type: 'value', splitLine: { lineStyle: { color: '#141d31' } }, axisLabel: { color: '#7c8aa5', fontSize: 10, formatter: function(v) { return compactMoney(v) } } },
+    yAxis: { type: 'category', data: names, axisLine: { lineStyle: { color: '#223052' } }, axisLabel: { color: '#c3cede', fontSize: 11 } },
+    series: series
+  }
+  chart('chartCharges').setOption(opt, true)
+  renderChargesPie(comps, compLabels)
+}
+
+function renderChargesPie(comps, compLabels) {
+  var one = selResult()
+  if (!one) { return }
+  var data = []
+  var i = 0
+  while (i < comps.length) {
+    var c = comps[i]
+    var v = one.charges_totals[c]
+    if (v > 0) {
+      data.push({ name: compLabels[c], value: v, itemStyle: { color: CHART_COLORS[i % CHART_COLORS.length] } })
+    }
+    i = i + 1
+  }
+  var opt = {
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'item', formatter: function(p) { return p.name + ': ' + fmtMoney(p.value, 2) }, backgroundColor: '#131c30', borderColor: '#223052', textStyle: { color: '#e5e9f0', fontSize: 12 }, confine: true },
+    legend: { bottom: 0, textStyle: { color: '#8b9bb4', fontSize: 10.5 }, icon: 'roundRect', itemWidth: 14, itemHeight: 8 },
+    series: [{
+      type: 'pie',
+      radius: ['42%', '68%'],
+      center: ['50%', '44%'],
+      data: data,
+      itemStyle: { borderColor: '#0f1522', borderWidth: 2 },
+      label: { color: '#8b9bb4', fontSize: 10.5, formatter: function(p) { return p.name + ' ' + p.percent.toFixed(0) + '%' } }
+    }]
+  }
+  chart('chartChargesPie').setOption(opt, true)
+}
+
+function renderCompare() {
+  var res = STATE.last
+  var names = []
+  var mlist = []
+  var i = 0
+  while (i < res.results.length) {
+    var one = res.results[i]
+    if (!one.error) {
+      names.push(one.name)
+      mlist.push(one.metrics)
+    }
+    i = i + 1
+  }
+  var mdefs = [
+    ['Net Profit', 'net_profit', 'money2', 'sign'],
+    ['Total Return', 'total_return_pct', 'pct', 'sign'],
+    ['CAGR', 'cagr', 'pct', 'sign'],
+    ['Sharpe Ratio', 'sharpe_ratio', 'num2', ''],
+    ['Max Drawdown', 'max_drawdown_pct', 'pct', 'bad'],
+    ['Win Rate', 'win_rate', 'pct', ''],
+    ['Profit Factor', 'profit_factor', 'num2', 'sign'],
+    ['Total Trades', 'total_trades', 'int', ''],
+    ['Avg Win', 'avg_win', 'money2', 'sign'],
+    ['Avg Loss', 'avg_loss', 'money2', 'sign'],
+    ['Avg Holding', 'avg_holding_h', 'hold', ''],
+    ['Total Charges', 'total_charges', 'money2', 'bad'],
+    ['Final Capital', 'final_capital', 'money2', ''],
+    ['Best Trade', 'best_trade', 'money2', 'sign'],
+    ['Worst Trade', 'worst_trade', 'money2', 'sign']
+  ]
+  var head = '<tr><th style="text-align:left">Metric</th>'
+  i = 0
+  while (i < names.length) {
+    head = head + '<th>' + names[i] + '</th>'
+    i = i + 1
+  }
+  head = head + '</tr>'
+  var rows = []
+  var mi = 0
+  while (mi < mdefs.length) {
+    var md = mdefs[mi]
+    var line = '<tr><td style="text-align:left;color:#8b9bb4">' + md[0] + '</td>'
+    i = 0
+    while (i < names.length) {
+      var mm = mlist[i]
+      var v = mm[md[1]]
+      var cls = ''
+      if (md[3] === 'sign') {
+        if (v > 0) { cls = 'pos' }
+        if (v < 0) { cls = 'neg' }
+      }
+      if (md[3] === 'bad' && v >= 15) { cls = 'neg' }
+      line = line + '<td class="' + cls + '">' + fmtBy(md[2], v) + '</td>'
+      i = i + 1
+    }
+    line = line + '</tr>'
+    rows.push(line)
+    mi = mi + 1
+  }
+  el('compareTable').getElementsByTagName('thead')[0].innerHTML = head
+  el('compareTable').getElementsByTagName('tbody')[0].innerHTML = rows.join('')
+  var data = []
+  i = 0
+  while (i < mlist.length) {
+    var np = mlist[i].net_profit
+    var color = '#10b981'
+    if (np < 0) { color = '#ef4444' }
+    data.push({ value: np, itemStyle: { color: color } })
+    i = i + 1
+  }
+  var opt = {
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: function(v) { return fmtMoney(v, 2) }, backgroundColor: '#131c30', borderColor: '#223052', textStyle: { color: '#e5e9f0', fontSize: 12 }, confine: true },
+    grid: { left: 66, right: 20, top: 14, bottom: 24 },
+    xAxis: { type: 'category', data: names, axisLine: { lineStyle: { color: '#223052' } }, axisLabel: { color: '#8b9bb4', fontSize: 10.5 } },
+    yAxis: { type: 'value', splitLine: { lineStyle: { color: '#141d31' } }, axisLabel: { color: '#7c8aa5', fontSize: 10, formatter: function(v) { return compactMoney(v) } } },
+    series: [{ type: 'bar', data: data, barMaxWidth: 44, label: { show: true, position: 'top', color: '#c3cede', fontSize: 10, formatter: function(p) { return compactMoney(p.value) } } }]
+  }
+  chart('chartCompare').setOption(opt, true)
+}
+
+function downloadText(fname, text, mime) {
+  var blob = new Blob([text], { type: mime })
+  var url = URL.createObjectURL(blob)
+  var a = document.createElement('a')
+  a.href = url
+  a.download = fname
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+function downloadCsv() {
+  var one = selResult()
+  if (!one) { return }
+  var filter = el('dirFilter').value
+  var lines = []
+  lines.push('num,entry_time,exit_time,direction,quantity,entry_price,exit_price,gross_pnl,charges,net_pnl,return_pct')
+  var i = 0
+  var n = 0
+  var cap = STATE.last.capital
+  while (i < one.trades.length) {
+    var t = one.trades[i]
+    i = i + 1
+    if (filter !== 'all' && t.direction !== filter) { continue }
+    n = n + 1
+    var retPct = (t.net_pnl / cap * 100).toFixed(2)
+    var line = n + ',' + t.entry_time + ',' + t.exit_time + ',' + t.direction + ',' + t.quantity + ',' + t.entry_price + ',' + t.exit_price + ',' + t.gross_pnl.toFixed(2) + ',' + t.total_charges.toFixed(2) + ',' + t.net_pnl.toFixed(2) + ',' + retPct
+    lines.push(line)
+  }
+  var fname = 'trades_' + STATE.last.symbol + '_' + one.key + '.csv'
+  downloadText(fname, lines.join(NL), 'text/csv')
+  toast('CSV downloaded', 'ok')
+}
+
+function downloadJson() {
+  if (!STATE.last) { return }
+  var txt = JSON.stringify(STATE.last, null, 2)
+  var fname = 'backtest_' + STATE.last.symbol + '.json'
+  downloadText(fname, txt, 'application/json')
+  toast('JSON downloaded', 'ok')
+}
+
+window.addEventListener('resize', function() {
+  var ids = Object.keys(STATE.charts)
+  var i = 0
+  while (i < ids.length) {
+    STATE.charts[ids[i]].resize()
+    i = i + 1
+  }
+})
+
+function whenReady(fn) {
+  if (window.echarts) { fn(); return }
+  var tries = 0
+  var timer = setInterval(function() {
+    tries = tries + 1
+    if (window.echarts) {
+      clearInterval(timer)
+      fn()
+    } else {
+      if (tries > 60) {
+        clearInterval(timer)
+        toast('Chart library failed to load - check static/echarts.min.js', 'err')
+      }
+    }
+  }, 100)
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  whenReady(boot)
+})
+</script>
+</body>
+</html>
+
