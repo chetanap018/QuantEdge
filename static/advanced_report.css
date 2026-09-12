@@ -1,0 +1,42 @@
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0a0e17;color:#e5e9f0;min-height:100vh;padding:24px}
+.header{display:flex;align-items:baseline;gap:16px;margin-bottom:8px;flex-wrap:wrap}
+.header h1{font-size:22px;font-weight:700}
+.header .sub{color:#64748b;font-size:13px}
+.header .badge{background:linear-gradient(135deg,#6366f1,#22d3ee);color:#fff;padding:4px 12px;border-radius:999px;font-size:12px;font-weight:600}
+.kpi-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;margin:18px 0 24px}
+.kpi{background:linear-gradient(180deg,#121a2b,#0e1524);border:1px solid #1e2a44;border-radius:12px;padding:12px 14px;position:relative;overflow:hidden}
+.kpi::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,#4f8cff,transparent 70%);opacity:.6}
+.kpi .label{font-size:10px;color:#7c8aa5;font-weight:700;letter-spacing:.6px;text-transform:uppercase}
+.kpi .val{font-size:19px;font-weight:750;margin-top:5px}
+.kpi .sub{font-size:10px;color:#5d6b84;margin-top:3px}
+.pos{color:#10b981}.neg{color:#ef4444}.neu{color:#e5e9f0}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+.card{background:#0f1522;border:1px solid #1c2740;border-radius:14px;padding:14px 16px;margin-bottom:16px}
+.card h3{font-size:13px;font-weight:700;color:#c3cede;margin-bottom:4px}
+.card .desc{font-size:11px;color:#64748b;margin-bottom:8px}
+.chart{width:100%;height:300px}
+.chart-sm{height:220px}
+.chart-lg{height:380px}
+.charts-row{display:grid;grid-template-columns:2fr 1fr;gap:16px}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{background:#131c30;color:#8b9bb4;text-align:right;font-weight:700;font-size:10.5px;padding:7px 10px;border-bottom:1px solid #223052;position:sticky;top:0}
+th:first-child,td:first-child{text-align:left}
+td{padding:6px 10px;text-align:right;border-bottom:1px solid #141d31;color:#c3cede}
+tr:hover td{background:#101a2e}
+.table-wrap{overflow:auto;max-height:340px;border-radius:8px;border:1px solid #1c2740}
+.rec{border:1px solid #1c2740;border-radius:12px;padding:14px 16px;margin-bottom:12px;background:#0f1522}
+.rec .issue{font-size:13px;font-weight:700;color:#ffb020;margin-bottom:4px}
+.rec .detail{font-size:11.5px;color:#8b9bb4;margin-bottom:6px;line-height:1.5}
+.rec .fix{font-size:11.5px;color:#10b981;line-height:1.5}
+.rec .fix::before{content:'FIX: ';font-weight:700}
+.section-title{font-size:15px;font-weight:700;margin:28px 0 12px;padding-bottom:6px;border-bottom:1px solid #1c2740}
+.bar{display:flex;align-items:center;gap:8px;margin:3px 0;font-size:11px}
+.bar .name{width:80px;color:#7c8aa5;text-align:right}
+.bar .track{flex:1;height:14px;background:#0b1120;border-radius:7px;overflow:hidden}
+.bar .fill{height:100%;border-radius:7px}
+.bar .val{width:50px;text-align:right;font-weight:600}
+.pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:600}
+.pill.win{background:rgba(16,185,129,0.15);color:#10b981}
+.pill.loss{background:rgba(239,68,68,0.15);color:#ef4444}
+.footer{text-align:center;color:#475569;font-size:11px;margin-top:30px;padding-top:16px;border-top:1px solid #1c2740}
