@@ -1,0 +1,21 @@
+# Core dependencies
+pandas>=1.5.0
+numpy>=1.23.0
+matplotlib>=3.6.0
+
+# Web UI (Backtest Studio)
+flask>=2.2.0
+
+# Angel One SmartAPI (install separately if using live data)
+# smartapi-python>=1.3.0
+# pyotp>=2.8.0
+
+# Optional: for interactive plots
+# plotly>=5.13.0
+
+# Optional: loads .env (Angel One credentials) at startup
+# python-dotenv>=1.0.0
+
+
+# Optional: for Zerodha Kite alternative
+# kiteconnect>=4.2.0
