@@ -1,0 +1,19 @@
+# ===== Environment / credentials (NEVER commit these) =====
+# Angel One credentials live in .env (loaded by config.py)
+.env
+.env.local
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# ===== Runtime artifacts =====
+cache/
+output/*.png
+logs/
+
+# ===== macOS =====
+.DS_Store
