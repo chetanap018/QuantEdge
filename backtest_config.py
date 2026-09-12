@@ -86,6 +86,31 @@ RISK_PCT = 0.02
 RISK_PER_UNIT = 10.0
 
 # ============================================================
+# RISK MANAGEMENT (engine-enforced exits)
+# ============================================================
+# Stop-loss / take-profit / trailing-stop are now enforced inside the engine
+# (see risk.py), not only in strategy logic.
+STOP_LOSS_PCT = 0.05          # 5% adverse move closes the position
+TAKE_PROFIT_PCT = None        # e.g. 0.04 = take profit at +4%
+TRAILING_STOP_PCT = None      # e.g. 0.04 = trail 4% below the peak after activation
+TRAILING_ACTIVATION_PCT = 0.0 # profit % needed before the trailing stop engages
+
+# ============================================================
+# ORDER EXECUTION (correctness)
+# ============================================================
+# Fill on the NEXT bar's open (avoids same-bar-close look-ahead).
+# Set to "same_close" only for A/B comparison with the legacy engine.
+FILL_POLICY = "next_open"
+# Slippage: "fixed" (basis points) or "volatility" (k * (high-low)).
+SLIPPAGE_MODE = "fixed"
+SLIPPAGE_BPS = 5.0
+VOL_SLIPPAGE_FACTOR = 0.5
+# Liquidity / partial fills
+LIQUIDITY_CHECK = False       # set True to cap fills at MAX_PARTICIPATION * volume
+MAX_PARTICIPATION = 0.05
+PARTIAL_FILLS = True
+
+# ============================================================
 # SEGMENT (affects brokerage calculation)
 # ============================================================
 #   "intraday_equity"  - Intraday equity (0.03% brokerage, capped at ₹20)
