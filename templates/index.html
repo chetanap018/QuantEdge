@@ -84,14 +84,17 @@
       <span class="strategy-count">select one or more</span>
     </div>
     <div id="strategyList"></div>
-    <div class="ai-strategy-panel">
-      <div class="side-title">✨ Add a strategy by description</div>
+    <button class="ai-strategy-toggle" id="ai-strategy-toggle" onclick="toggleAIStrategy()">
+      <span class="ai-strategy-toggle-icon" id="ai-strategy-toggle-icon">+</span>
+      <span>Add a strategy by description</span>
+    </button>
+    <div class="ai-strategy-panel" id="ai-strategy-panel" style="display:none;">
       <p class="ai-strategy-hint">
-        Describe entries and exits in plain English — e.g. "Go long when the 20-day EMA crosses above the 50-day EMA and RSI(14) is above 50. Exit when EMA crosses back below."
+        Describe entries and exits in plain English — the model writes a tested strategy class you can run immediately.
       </p>
       <input type="text" id="ai-strategy-name" placeholder="Strategy name (e.g. EMA + RSI Trend)" />
-      <textarea id="ai-strategy-desc" rows="4" placeholder="Describe the entry and exit rules..."></textarea>
-      <button class="btn-ghost" id="ai-strategy-generate-btn" onclick="generateAIStrategy()">
+      <textarea id="ai-strategy-desc" rows="4" placeholder="Go long when the 20-day EMA crosses above the 50-day EMA and RSI(14) is above 50. Exit long when EMA crosses back below. Mirror for shorts."></textarea>
+      <button class="btn-ghost ai-strategy-generate-btn" id="ai-strategy-generate-btn" onclick="generateAIStrategy()">
         Generate strategy
       </button>
       <div id="ai-strategy-status" class="ai-strategy-status" style="display:none;"></div>
@@ -1314,6 +1317,20 @@ function whenReady(fn) {
 document.addEventListener('DOMContentLoaded', function() {
   whenReady(boot)
 })
+
+function toggleAIStrategy() {
+  var panel = document.getElementById('ai-strategy-panel');
+  var icon = document.getElementById('ai-strategy-toggle-icon');
+  if (panel.style.display === 'none') {
+    panel.style.display = 'block';
+    icon.textContent = '−';
+  } else {
+    panel.style.display = 'none';
+    icon.textContent = '+';
+  }
+}
+
+
 </script>
 
 <script>
