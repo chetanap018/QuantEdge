@@ -419,6 +419,98 @@ body {
 
 .kpi:hover {
   transform: translateY(-1px);
+
+
+/* ---------- AI strategy panel ---------- */
+.ai-strategy-panel {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid #dbe2ec;
+  border-radius: 14px;
+  background: #f7fafd;
+}
+
+.ai-strategy-panel .side-title {
+  margin-bottom: 8px;
+}
+
+.ai-strategy-hint {
+  font-size: 11px;
+  color: #5b6b80;
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+
+.ai-strategy-panel input,
+.ai-strategy-panel textarea {
+  width: 100%;
+  margin-bottom: 8px;
+  background: #ffffff;
+  border: 1px solid #e1e8f2;
+  color: #0f1c2c;
+  border-radius: 10px;
+  padding: 9px 11px;
+  font-size: 12.5px;
+  outline: none;
+  transition: border 0.15s ease, box-shadow 0.15s ease;
+  font-weight: 500;
+  box-sizing: border-box;
+}
+
+.ai-strategy-panel input:focus,
+.ai-strategy-panel textarea:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.ai-strategy-panel textarea {
+  resize: vertical;
+  min-height: 70px;
+}
+
+.ai-strategy-panel .btn-ghost {
+  margin-top: 0;
+}
+
+.ai-strategy-status {
+  margin-top: 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  border: 1px solid transparent;
+}
+
+.ai-strategy-status.pending {
+  background: #eef3fa;
+  border-color: #dbe2ec;
+  color: #5b6b80;
+}
+
+.ai-strategy-status.success {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+  color: #065f46;
+}
+
+.ai-strategy-status.error {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #991b1b;
+}
+
+.ai-strategy-code {
+  max-height: 260px;
+  overflow: auto;
+  background: #0f1522;
+  color: #c3cede;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  margin-top: 8px;
+}
+
   box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
 }
 
