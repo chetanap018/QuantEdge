@@ -18,7 +18,7 @@ Example:
             return data_with_signals
 """
 
-from strategies.base import Strategy
+from strategies.base import Strategy, EventDrivenStrategy, is_event_driven
 from strategies.sma_crossover import SMACrossoverStrategy
 from strategies.rsi_mean_reversion import RSIMeanReversionStrategy
 from strategies.MACDCrossoverStrategy import MACDCrossoverStrategy
@@ -28,6 +28,8 @@ from strategies.hero_orb import HeroOrbStrategy
 
 __all__ = [
     "Strategy",
+    "EventDrivenStrategy",
+    "is_event_driven",
     "SMACrossoverStrategy",
     "RSIMeanReversionStrategy",
     "MACDCrossoverStrategy",
