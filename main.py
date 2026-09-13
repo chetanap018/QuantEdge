@@ -85,6 +85,9 @@ def parse_args():
                         choices=["intraday_equity", "delivery_equity", "futures", "options"])
     parser.add_argument("--no_plot", action="store_true")
     parser.add_argument("--no_csv", action="store_true", help="Disable CSV export")
+    parser.add_argument("--allow_synthetic", action="store_true", default=None,
+                        help="Allow synthetic (simulated GBM) data when all real sources fail. "
+                             "Default: use config.ALLOW_SYNTHETIC_DATA.")
     return parser.parse_args()
 
 
@@ -173,6 +176,7 @@ def run_backtest(
     segment: str = "intraday_equity",
     plot: bool = True,
     export_csv: bool = True,
+    allow_synthetic: bool = None,
 ):
     """Run backtest for one or more strategies on a symbol."""
     print(f"\n  Fetching data for {exchange}:{symbol} ({timeframe})...")
@@ -180,6 +184,7 @@ def run_backtest(
     data = fetcher.fetch_historical_data(
         symbol=symbol, exchange=exchange, timeframe=timeframe,
         start_date=start_date, end_date=end_date,
+        allow_synthetic=allow_synthetic,
     )
     # Safety: ensure data is sorted by datetime ascending
     if not data.empty and "datetime" in data.columns:
@@ -237,6 +242,7 @@ def main():
         capital=args.capital, sizing=args.sizing, segment=args.segment,
         plot=backtest_config.ENABLE_PLOT and not args.no_plot,
         export_csv=backtest_config.ENABLE_CSV and not args.no_csv,
+        allow_synthetic=args.allow_synthetic,
     )
 
 
