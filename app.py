@@ -489,6 +489,7 @@ def api_run():
     segment = str(segment_raw)
     sizing_params = body.get("sizing_params") or {}
     strategies_sel = body.get("strategies") or []
+    allow_synthetic = body.get("allow_synthetic")
 
     fetcher = DataFetcher()
     try:
@@ -498,6 +499,7 @@ def api_run():
             timeframe=timeframe,
             start_date=start_date,
             end_date=end_date,
+            allow_synthetic=allow_synthetic,
         )
     finally:
         fetcher.logout()
@@ -553,6 +555,12 @@ def api_run():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5001))
+    print("=" * 60)
+    print("  Backtest Studio - Web UI")
+    print("  Open: http://127.0.0.1:%d" % port)
+    print("=" * 60)
+    app.run(host="127.0.0.1", port=port, debug=False)
+
 
 @app.route("/api/strategies/generate", methods=["POST"])
 def api_generate_strategy():
@@ -608,11 +616,3 @@ def api_list_generated_strategies():
             "created_at": entry["created_at"],
         })
     return jsonify({"ok": True, "strategies": out})
-
-
-
-    print("=" * 60)
-    print("  Backtest Studio - Web UI")
-    print("  Open: http://127.0.0.1:%d" % port)
-    print("=" * 60)
-    app.run(host="127.0.0.1", port=port, debug=False)
