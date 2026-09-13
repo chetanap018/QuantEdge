@@ -6,28 +6,43 @@
 <title>QuantEdge - Strategy Backtesting Studio</title>
 <script src="/static/echarts.min.js"></script>
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<link rel="icon" href="{{ url_for('static', filename='logo.png') }}" type="image/png">
 </head>
 <body>
 <header class="topbar">
   <div class="brand">
-      <img class="brand-logo" src="{{ url_for('static', filename='logo.png') }}" alt="QuantEdge logo" width="38" height="38">
+    <img class="brand-logo" src="{{ url_for('static', filename='logo.png') }}" alt="QuantEdge logo" width="38" height="38">
     <div>
-                <h1>{{ project_name }}</h1>
-      <p>Strategy backtesting &middot; Zerodha charges &middot; Angel One data</p>
+      <span class="brand-kicker">Quant research workspace</span>
+      <h1>{{ project_name }}</h1>
     </div>
+  </div>
+  <div class="topbar-center">
+    <span class="topbar-dot"></span>
+    <span>Backtest Studio</span>
+    <span class="topbar-divider"></span>
+    <span class="topbar-muted">Zerodha charges &middot; Angel One data</span>
   </div>
   <div class="topbar-right">
     <div class="status-pill" id="statusPill">Engine ready</div>
-    <button class="btn-run" id="runBtn">Run Backtest</button>
+    <button class="btn-run" id="runBtn"><span class="run-icon">↗</span> Run Backtest</button>
   </div>
 </header>
 
 <div class="layout">
   <aside class="sidebar">
-    <div class="side-title">Configuration</div>
-    <div class="field">
+    <div class="sidebar-intro">
+      <div class="section-index">01</div>
+      <div>
+        <span class="eyebrow">Experiment setup</span>
+        <h2>Build a run</h2>
+      </div>
+    </div>
+    <div class="side-rule"></div>
+    <div class="side-title">Market universe</div>
+    <div class="field field-primary">
       <label for="fSymbol">Symbol</label>
-      <input type="text" id="fSymbol" placeholder="RELIANCE" autocomplete="off">
+      <div class="input-with-prefix"><span>⌁</span><input type="text" id="fSymbol" placeholder="RELIANCE" autocomplete="off"></div>
     </div>
     <div class="field-row">
       <div class="field">
@@ -39,6 +54,7 @@
         <select id="fTimeframe"></select>
       </div>
     </div>
+    <div class="side-title side-title-spaced">Test window</div>
     <div class="field-row">
       <div class="field">
         <label for="fStart">Start date</label>
@@ -53,6 +69,7 @@
       <label for="fCapital">Initial capital (&#8377;)</label>
       <input type="number" id="fCapital" min="1000" step="1000">
     </div>
+    <div class="side-title side-title-spaced">Execution model</div>
     <div class="field">
       <label for="fSegment">Segment (brokerage)</label>
       <select id="fSegment"></select>
@@ -62,71 +79,83 @@
       <select id="fSizing"></select>
     </div>
     <div id="sizingFields"></div>
-    <div class="side-title" style="margin-top:16px">Strategies</div>
+    <div class="strategy-heading">
+      <div class="side-title">Strategies</div>
+      <span class="strategy-count">select one or more</span>
+    </div>
     <div id="strategyList"></div>
-    <button class="btn-ghost" id="resetBtn">Reset to backtest_config.py defaults</button>
+    <button class="btn-ghost" id="resetBtn"><span>↺</span> Reset to config defaults</button>
+    <div class="sidebar-foot">Defaults stay synced with<br><b>backtest_config.py</b></div>
   </aside>
 
   <main class="content">
     <div id="resultsArea" style="display:none">
       <div class="results-head">
-        <h2><span id="runTitle">Results</span><small id="runMeta"></small></h2>
-        <select class="pill-select" id="strategyPick"></select>
+        <div class="run-heading">
+          <span class="eyebrow">Latest experiment</span>
+          <h2><span id="runTitle">Results</span></h2>
+          <small id="runMeta"></small>
+        </div>
+        <div class="result-focus">
+          <label for="strategyPick">Focus strategy</label>
+          <select class="pill-select" id="strategyPick"></select>
+        </div>
       </div>
       <div id="kpiGrid"></div>
       <nav class="tabs">
-        <button class="tab-btn active" data-tab="overview">Overview</button>
-        <button class="tab-btn" data-tab="price">Price &amp; Signals</button>
-        <button class="tab-btn" data-tab="trades">Trades</button>
-        <button class="tab-btn" data-tab="charges">Charges</button>
-        <button class="tab-btn" data-tab="compare">Compare</button>
+        <div class="tabs-label">Explore</div>
+        <button class="tab-btn active" data-tab="overview"><span>01</span> Overview</button>
+        <button class="tab-btn" data-tab="price"><span>02</span> Price &amp; Signals</button>
+        <button class="tab-btn" data-tab="trades"><span>03</span> Trades</button>
+        <button class="tab-btn" data-tab="charges"><span>04</span> Charges</button>
+        <button class="tab-btn" data-tab="compare"><span>05</span> Compare</button>
       </nav>
 
       <section class="panel active" id="tab-overview">
-        <div class="card">
-          <h3>Equity Curve</h3>
-          <div class="card-sub">Capital + open P&amp;L after every bar &middot; all strategies overlaid</div>
+        <div class="card card-hero">
+          <div class="card-heading"><div><span class="eyebrow">Performance curve</span><h3>Equity Curve</h3></div><span class="card-note">all strategies overlaid</span></div>
+          <div class="card-sub">Capital + open P&amp;L after every bar</div>
           <div class="chart chart-tall" id="chartEquity"></div>
         </div>
         <div class="grid-2">
           <div class="card">
-            <h3>Drawdown</h3>
+            <div class="card-heading"><div><span class="eyebrow">Risk profile</span><h3>Drawdown</h3></div><span class="card-note">peak to trough</span></div>
             <div class="card-sub">Decline from running equity peak</div>
             <div class="chart" id="chartDrawdown"></div>
           </div>
           <div class="card">
-            <h3>Long vs Short P&amp;L</h3>
+            <div class="card-heading"><div><span class="eyebrow">Position mix</span><h3>Long vs Short P&amp;L</h3></div><span class="card-note">net split</span></div>
             <div class="card-sub">Net profit split by direction</div>
             <div class="chart" id="chartSide"></div>
           </div>
         </div>
         <div class="card">
-          <h3>Monthly Returns</h3>
+          <div class="card-heading"><div><span class="eyebrow">Consistency</span><h3>Monthly Returns</h3></div><span class="card-note">calendar month</span></div>
           <div class="card-sub">Return per calendar month from month-end equity</div>
           <div class="chart chart-sm" id="chartMonthly"></div>
         </div>
-        <div class="card">
-          <h3>Trade Quality</h3>
+        <div class="card quality-card">
+          <div class="card-heading"><div><span class="eyebrow">Trade review</span><h3>Trade Quality</h3></div><span class="card-note">selected strategy</span></div>
           <div class="chips" id="statChips"></div>
         </div>
       </section>
 
       <section class="panel" id="tab-price">
-        <div class="card">
-          <h3>Price with Trade Markers</h3>
-          <div class="card-sub">Candles + volume &middot; entries and exits for the selected strategy</div>
+        <div class="card card-hero">
+          <div class="card-heading"><div><span class="eyebrow">Market context</span><h3>Price with Trade Markers</h3></div><span class="card-note">selected strategy</span></div>
+          <div class="card-sub">Candles + volume &middot; entries and exits</div>
           <div class="chart chart-tall" id="chartPrice"></div>
         </div>
       </section>
 
       <section class="panel" id="tab-trades">
         <div class="card">
-          <h3>Trade P&amp;L</h3>
-          <div class="card-sub">Net profit per trade, in sequence</div>
+          <div class="card-heading"><div><span class="eyebrow">Trade sequence</span><h3>Trade P&amp;L</h3></div><span class="card-note">net profit per trade</span></div>
           <div class="chart chart-sm" id="chartPnl"></div>
         </div>
         <div class="card">
           <div class="toolbar">
+            <div><span class="eyebrow">Trade ledger</span><h3>Executed positions</h3></div>
             <select id="dirFilter">
               <option value="all">All trades</option>
               <option value="long">Long only</option>
@@ -150,24 +179,24 @@
       </section>
 
       <section class="panel" id="tab-charges">
-        <div class="card">
-          <h3>Charges by Component</h3>
-          <div class="card-sub">Stacked per strategy &middot; Zerodha rate card</div>
+        <div class="card card-hero">
+          <div class="card-heading"><div><span class="eyebrow">Cost analysis</span><h3>Charges by Component</h3></div><span class="card-note">Zerodha rate card</span></div>
+          <div class="card-sub">Stacked per strategy</div>
           <div class="chart" id="chartCharges"></div>
         </div>
         <div class="card">
-          <h3>Selected Strategy Split</h3>
+          <div class="card-heading"><div><span class="eyebrow">Focused view</span><h3>Selected Strategy Split</h3></div></div>
           <div class="chart chart-sm" id="chartChargesPie"></div>
         </div>
       </section>
 
       <section class="panel" id="tab-compare">
         <div class="card">
-          <h3>Net Profit Comparison</h3>
+          <div class="card-heading"><div><span class="eyebrow">Decision view</span><h3>Net Profit Comparison</h3></div><span class="card-note">across strategies</span></div>
           <div class="chart chart-sm" id="chartCompare"></div>
         </div>
         <div class="card">
-          <h3>Metrics Side by Side</h3>
+          <div class="card-heading"><div><span class="eyebrow">Full scorecard</span><h3>Metrics Side by Side</h3></div></div>
           <div class="table-wrap">
             <table id="compareTable">
               <thead></thead>
@@ -179,10 +208,28 @@
     </div>
 
     <div id="emptyState">
-      <div class="big">&#128200;</div>
-      <h2>No backtest yet</h2>
-      <p>Configure symbol, dates, capital and strategies on the left, then hit Run Backtest. Everything you used to edit in backtest_config.py is now right here.</p>
-      <span class="hint">python3 app.py &rarr; open http://127.0.0.1:5000</span>
+      <div class="empty-layout">
+        <div class="empty-copy">
+          <span class="eyebrow">QuantEdge / Backtest Studio</span>
+          <h2>Turn a hypothesis<br><em>into evidence.</em></h2>
+          <p>Configure the market, choose your strategies, and run a complete performance study without leaving the workspace.</p>
+          <button class="empty-cta" onclick="el('fSymbol').focus()">Start with a symbol <span>→</span></button>
+        </div>
+        <div class="empty-map">
+          <div class="map-orbit orbit-one"></div>
+          <div class="map-orbit orbit-two"></div>
+          <div class="map-core">&#9670;</div>
+          <div class="map-label label-top">01 &nbsp; Configure</div>
+          <div class="map-label label-right">02 &nbsp; Simulate</div>
+          <div class="map-label label-bottom">03 &nbsp; Understand</div>
+        </div>
+      </div>
+      <div class="empty-footer">
+        <span><b>01</b> Define your market</span>
+        <span><b>02</b> Select a strategy</span>
+        <span><b>03</b> Read the outcome</span>
+        <code>python3 app.py</code>
+      </div>
     </div>
   </main>
 </div>
@@ -624,17 +671,17 @@ function chart(id) {
 
 function axisBits() {
   return {
-    axisLine: { lineStyle: { color: '#223052' } },
-    axisLabel: { color: '#7c8aa5', fontSize: 10.5, hideOverlap: true },
-    splitLine: { lineStyle: { color: '#141d31' } }
+    axisLine: { lineStyle: { color: '#e6e8ee' } },
+    axisLabel: { color: '#98a2b3', fontSize: 10.5, hideOverlap: true },
+    splitLine: { lineStyle: { color: '#eef0f4' } }
   }
 }
 
 function tipBits() {
   return {
-    backgroundColor: '#131c30',
-    borderColor: '#223052',
-    textStyle: { color: '#e5e9f0', fontSize: 12 },
+    backgroundColor: '#ffffff',
+    borderColor: '#e6e8ee',
+    textStyle: { color: '#1a212b', fontSize: 12 },
     confine: true
   }
 }
@@ -642,7 +689,7 @@ function tipBits() {
 function zoomBits() {
   return [
     { type: 'inside' },
-    { type: 'slider', height: 16, bottom: 6, borderColor: '#223052', backgroundColor: '#0b1120', fillerColor: 'rgba(79, 140, 255, 0.15)', handleStyle: { color: '#4f8cff' }, textStyle: { color: '#64748b', fontSize: 9 } }
+    { type: 'slider', height: 16, bottom: 6, borderColor: '#e6e8ee', backgroundColor: '#ffffff', fillerColor: 'rgba(79, 140, 255, 0.15)', handleStyle: { color: '#4f8cff' }, textStyle: { color: '#98a2b3', fontSize: 9 } }
   ]
 }
 
@@ -687,10 +734,10 @@ function renderOverview() {
   var opt = {
     backgroundColor: 'transparent',
     tooltip: tip,
-    legend: { data: legend, textStyle: { color: '#8b9bb4', fontSize: 11 }, top: 0, icon: 'roundRect', itemWidth: 14, itemHeight: 8 },
+    legend: { data: legend, textStyle: { color: '#98a2b3', fontSize: 11 }, top: 0, icon: 'roundRect', itemWidth: 14, itemHeight: 8 },
     grid: { left: 66, right: 18, top: 32, bottom: 58 },
-    xAxis: { type: 'time', axisLine: { lineStyle: { color: '#223052' } }, axisLabel: { color: '#7c8aa5', fontSize: 10.5, hideOverlap: true } },
-    yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: '#141d31' } }, axisLabel: { color: '#7c8aa5', fontSize: 10.5, formatter: function(v) { return compactMoney(v) } } },
+    xAxis: { type: 'time', axisLine: { lineStyle: { color: '#e6e8ee' } }, axisLabel: { color: '#98a2b3', fontSize: 10.5, hideOverlap: true } },
+    yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: '#eef0f4' } }, axisLabel: { color: '#98a2b3', fontSize: 10.5, formatter: function(v) { return compactMoney(v) } } },
     dataZoom: zoomBits(),
     series: series
   }
@@ -739,10 +786,10 @@ function renderDrawdown() {
   }]
   var opt = {
     backgroundColor: 'transparent',
-    tooltip: { trigger: 'axis', valueFormatter: function(v) { return v.toFixed(2) + '%' }, backgroundColor: '#131c30', borderColor: '#223052', textStyle: { color: '#e5e9f0', fontSize: 12 }, confine: true },
+    tooltip: { trigger: 'axis', valueFormatter: function(v) { return v.toFixed(2) + '%' }, backgroundColor: '#ffffff', borderColor: '#e6e8ee', textStyle: { color: '#1a212b', fontSize: 12 }, confine: true },
     grid: { left: 46, right: 14, top: 16, bottom: 26 },
-    xAxis: { type: 'time', axisLine: { lineStyle: { color: '#223052' } }, axisLabel: { color: '#7c8aa5', fontSize: 10, hideOverlap: true } },
-    yAxis: { type: 'value', splitLine: { lineStyle: { color: '#141d31' } }, axisLabel: { color: '#7c8aa5', fontSize: 10, formatter: function(v) { return v + '%' } } },
+    xAxis: { type: 'time', axisLine: { lineStyle: { color: '#e6e8ee' } }, axisLabel: { color: '#98a2b3', fontSize: 10, hideOverlap: true } },
+    yAxis: { type: 'value', splitLine: { lineStyle: { color: '#eef0f4' } }, axisLabel: { color: '#98a2b3', fontSize: 10, formatter: function(v) { return v + '%' } } },
     series: series
   }
   chart('chartDrawdown').setOption(opt, true)
@@ -760,9 +807,9 @@ function renderSide() {
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'item',
-      backgroundColor: '#131c30',
-      borderColor: '#223052',
-      textStyle: { color: '#e5e9f0', fontSize: 12 },
+      backgroundColor: '#ffffff',
+      borderColor: '#e6e8ee',
+      textStyle: { color: '#1a212b', fontSize: 12 },
       confine: true,
       formatter: function(p) {
         var d = p.data
@@ -774,9 +821,9 @@ function renderSide() {
       radius: ['46%', '72%'],
       center: ['50%', '52%'],
       data: data,
-      itemStyle: { borderColor: '#0f1522', borderWidth: 2 },
-      label: { color: '#8b9bb4', fontSize: 11, formatter: function(p) { return p.name } },
-      labelLine: { lineStyle: { color: '#223052' } }
+      itemStyle: { borderColor: '#ffffff', borderWidth: 2 },
+      label: { color: '#98a2b3', fontSize: 11, formatter: function(p) { return p.name } },
+      labelLine: { lineStyle: { color: '#e6e8ee' } }
     }]
   }
   chart('chartSide').setOption(opt, true)
@@ -807,9 +854,9 @@ function renderMonthly() {
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'item',
-      backgroundColor: '#131c30',
-      borderColor: '#223052',
-      textStyle: { color: '#e5e9f0', fontSize: 12 },
+      backgroundColor: '#ffffff',
+      borderColor: '#e6e8ee',
+      textStyle: { color: '#1a212b', fontSize: 12 },
       confine: true,
       formatter: function(p) {
         var yr = years[p.value[0]]
@@ -818,8 +865,8 @@ function renderMonthly() {
       }
     },
     grid: { left: 42, right: 10, top: 10, bottom: 44 },
-    xAxis: { type: 'category', data: years, axisLine: { lineStyle: { color: '#223052' } }, axisTick: { show: false }, axisLabel: { color: '#7c8aa5', fontSize: 10.5 } },
-    yAxis: { type: 'category', data: monthLabels, axisLine: { lineStyle: { color: '#223052' } }, axisTick: { show: false }, axisLabel: { color: '#7c8aa5', fontSize: 10 } },
+    xAxis: { type: 'category', data: years, axisLine: { lineStyle: { color: '#e6e8ee' } }, axisTick: { show: false }, axisLabel: { color: '#98a2b3', fontSize: 10.5 } },
+    yAxis: { type: 'category', data: monthLabels, axisLine: { lineStyle: { color: '#e6e8ee' } }, axisTick: { show: false }, axisLabel: { color: '#98a2b3', fontSize: 10 } },
     visualMap: {
       min: -maxAbs,
       max: maxAbs,
@@ -828,13 +875,13 @@ function renderMonthly() {
       left: 'center',
       bottom: 2,
       itemHeight: 55,
-      textStyle: { color: '#64748b', fontSize: 9 },
+      textStyle: { color: '#98a2b3', fontSize: 9 },
       inRange: { color: ['#dc2626', '#1c2433', '#10b981'] }
     },
     series: [{
       type: 'heatmap',
       data: data,
-      label: { show: true, fontSize: 9, color: '#dbe4f3', formatter: function(p) { return p.value[2] } }
+      label: { show: true, fontSize: 9, color: '#1a212b', formatter: function(p) { return p.value[2] } }
     }]
   }
   chart('chartMonthly').setOption(opt, true)
@@ -848,22 +895,22 @@ function renderChips() {
   var ts = one.trade_stats
   var m = one.metrics
   var chips = [
-    ['Best trade', fmtMoney(ts.best_trade, 2)],
-    ['Worst trade', fmtMoney(ts.worst_trade, 2)],
-    ['Avg win', fmtMoney(ts.avg_win, 2)],
-    ['Avg loss', fmtMoney(ts.avg_loss, 2)],
+    ['Best trade', fmtMoney(ts.best_trade, 2), ts.best_trade >= 0 ? 'pos' : 'neg'],
+    ['Worst trade', fmtMoney(ts.worst_trade, 2), ts.worst_trade >= 0 ? 'pos' : 'neg'],
+    ['Avg win', fmtMoney(ts.avg_win, 2), ts.avg_win >= 0 ? 'pos' : 'neg'],
+    ['Avg loss', fmtMoney(ts.avg_loss, 2), ts.avg_loss >= 0 ? 'pos' : 'neg'],
     ['Avg holding', fmtHold(ts.avg_holding_h)],
     ['Win streak', String(ts.max_consec_wins)],
     ['Loss streak', String(ts.max_consec_losses)],
-    ['Long', ts.long.count + ' trades / ' + fmtMoney(ts.long.pnl, 0) + ' / ' + ts.long.win_rate.toFixed(1) + '%'],
-    ['Short', ts.short.count + ' trades / ' + fmtMoney(ts.short.pnl, 0) + ' / ' + ts.short.win_rate.toFixed(1) + '%'],
-    ['Charges', fmtMoney(m.total_charges, 2)]
+    ['Long', ts.long.count + ' trades / ' + fmtMoney(ts.long.pnl, 0) + ' / ' + ts.long.win_rate.toFixed(1) + '%', ts.long.pnl >= 0 ? 'pos' : 'neg'],
+    ['Short', ts.short.count + ' trades / ' + fmtMoney(ts.short.pnl, 0) + ' / ' + ts.short.win_rate.toFixed(1) + '%', ts.short.pnl >= 0 ? 'pos' : 'neg'],
+    ['Charges', fmtMoney(m.total_charges, 2), 'neg']
   ]
   var i = 0
   while (i < chips.length) {
     var c = document.createElement('span')
     c.className = 'chip'
-    c.innerHTML = chips[i][0] + ': <b>' + chips[i][1] + '</b>'
+    c.innerHTML = chips[i][0] + ': <b class="' + (chips[i][2] || '') + '">' + chips[i][1] + '</b>'
     wrap.appendChild(c)
     i = i + 1
   }
@@ -918,24 +965,24 @@ function renderPrice() {
   var opt = {
     backgroundColor: 'transparent',
     animation: false,
-    axisPointer: { link: [{ xAxisIndex: 'all' }], label: { backgroundColor: '#223052' } },
-    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' }, backgroundColor: '#131c30', borderColor: '#223052', textStyle: { color: '#e5e9f0', fontSize: 12 }, confine: true },
-    legend: { data: ['Price', 'Long entry', 'Short entry', 'Exit'], textStyle: { color: '#8b9bb4', fontSize: 11 }, top: 0, icon: 'roundRect', itemWidth: 14, itemHeight: 8 },
+    axisPointer: { link: [{ xAxisIndex: 'all' }], label: { backgroundColor: '#e6e8ee' } },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' }, backgroundColor: '#ffffff', borderColor: '#e6e8ee', textStyle: { color: '#1a212b', fontSize: 12 }, confine: true },
+    legend: { data: ['Price', 'Long entry', 'Short entry', 'Exit'], textStyle: { color: '#98a2b3', fontSize: 11 }, top: 0, icon: 'roundRect', itemWidth: 14, itemHeight: 8 },
     grid: [
       { left: 62, right: 16, top: 28, height: '56%' },
       { left: 62, right: 16, top: '76%', height: '14%' }
     ],
     xAxis: [
-      { type: 'category', data: cats, gridIndex: 0, axisLine: { lineStyle: { color: '#223052' } }, axisLabel: { show: false }, axisTick: { show: false }, min: 'dataMin', max: 'dataMax' },
-      { type: 'category', data: cats, gridIndex: 1, axisLine: { lineStyle: { color: '#223052' } }, axisLabel: { color: '#7c8aa5', fontSize: 10 }, axisTick: { show: false }, min: 'dataMin', max: 'dataMax' }
+      { type: 'category', data: cats, gridIndex: 0, axisLine: { lineStyle: { color: '#e6e8ee' } }, axisLabel: { show: false }, axisTick: { show: false }, min: 'dataMin', max: 'dataMax' },
+      { type: 'category', data: cats, gridIndex: 1, axisLine: { lineStyle: { color: '#e6e8ee' } }, axisLabel: { color: '#98a2b3', fontSize: 10 }, axisTick: { show: false }, min: 'dataMin', max: 'dataMax' }
     ],
     yAxis: [
-      { scale: true, gridIndex: 0, splitLine: { lineStyle: { color: '#141d31' } }, axisLabel: { color: '#7c8aa5', fontSize: 10 } },
-      { gridIndex: 1, splitLine: { show: false }, axisLabel: { color: '#7c8aa5', fontSize: 9, formatter: function(v) { return compactMoney(v) } } }
+      { scale: true, gridIndex: 0, splitLine: { lineStyle: { color: '#eef0f4' } }, axisLabel: { color: '#98a2b3', fontSize: 10 } },
+      { gridIndex: 1, splitLine: { show: false }, axisLabel: { color: '#98a2b3', fontSize: 9, formatter: function(v) { return compactMoney(v) } } }
     ],
     dataZoom: [
       { type: 'inside', xAxisIndex: [0, 1] },
-      { type: 'slider', xAxisIndex: [0, 1], height: 16, bottom: 4, borderColor: '#223052', backgroundColor: '#0b1120', fillerColor: 'rgba(79, 140, 255, 0.15)', handleStyle: { color: '#4f8cff' }, textStyle: { color: '#64748b', fontSize: 9 } }
+      { type: 'slider', xAxisIndex: [0, 1], height: 16, bottom: 4, borderColor: '#e6e8ee', backgroundColor: '#ffffff', fillerColor: 'rgba(79, 140, 255, 0.15)', handleStyle: { color: '#4f8cff' }, textStyle: { color: '#98a2b3', fontSize: 9 } }
     ],
     series: [
       { name: 'Price', type: 'candlestick', data: candle, xAxisIndex: 0, yAxisIndex: 0, itemStyle: { color: '#10b981', color0: '#ef4444', borderColor: '#10b981', borderColor0: '#ef4444' } },
@@ -981,10 +1028,10 @@ function renderTrades() {
   }
   var opt = {
     backgroundColor: 'transparent',
-    tooltip: { trigger: 'axis', valueFormatter: function(v) { return fmtMoney(v, 2) }, backgroundColor: '#131c30', borderColor: '#223052', textStyle: { color: '#e5e9f0', fontSize: 12 }, confine: true },
+    tooltip: { trigger: 'axis', valueFormatter: function(v) { return fmtMoney(v, 2) }, backgroundColor: '#ffffff', borderColor: '#e6e8ee', textStyle: { color: '#1a212b', fontSize: 12 }, confine: true },
     grid: { left: 66, right: 14, top: 14, bottom: 26 },
-    xAxis: { type: 'category', data: cats, axisLine: { lineStyle: { color: '#223052' } }, axisLabel: { color: '#64748b', fontSize: 9, interval: Math.floor(cats.length / 12) || 0 } },
-    yAxis: { type: 'value', splitLine: { lineStyle: { color: '#141d31' } }, axisLabel: { color: '#7c8aa5', fontSize: 10, formatter: function(v) { return compactMoney(v) } } },
+    xAxis: { type: 'category', data: cats, axisLine: { lineStyle: { color: '#e6e8ee' } }, axisLabel: { color: '#98a2b3', fontSize: 9, interval: Math.floor(cats.length / 12) || 0 } },
+    yAxis: { type: 'value', splitLine: { lineStyle: { color: '#eef0f4' } }, axisLabel: { color: '#98a2b3', fontSize: 10, formatter: function(v) { return compactMoney(v) } } },
     series: [{ type: 'bar', data: data, barMaxWidth: 14 }]
   }
   chart('chartPnl').setOption(opt, true)
@@ -1014,8 +1061,8 @@ function renderTradeTable(one, filter) {
     row = row + '<td>' + t.quantity + '</td>'
     row = row + '<td>' + t.entry_price.toFixed(2) + '</td>'
     row = row + '<td>' + t.exit_price.toFixed(2) + '</td>'
-    row = row + '<td>' + fmtMoney(t.gross_pnl, 2) + '</td>'
-    row = row + '<td>' + fmtMoney(t.total_charges, 2) + '</td>'
+    row = row + '<td class="' + (t.gross_pnl >= 0 ? 'pos' : 'neg') + '">' + fmtMoney(t.gross_pnl, 2) + '</td>'
+    row = row + '<td class="neg">' + fmtMoney(t.total_charges, 2) + '</td>'
     row = row + '<td class="' + pnlCls + '">' + fmtMoney(t.net_pnl, 2) + '</td>'
     row = row + '<td class="' + pnlCls + '">' + retPct + '%</td>'
     row = row + '</tr>'
@@ -1059,11 +1106,11 @@ function renderCharges() {
   }
   var opt = {
     backgroundColor: 'transparent',
-    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: function(v) { return fmtMoney(v, 2) }, backgroundColor: '#131c30', borderColor: '#223052', textStyle: { color: '#e5e9f0', fontSize: 12 }, confine: true },
-    legend: { textStyle: { color: '#8b9bb4', fontSize: 10.5 }, top: 0, icon: 'roundRect', itemWidth: 14, itemHeight: 8 },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: function(v) { return fmtMoney(v, 2) }, backgroundColor: '#ffffff', borderColor: '#e6e8ee', textStyle: { color: '#1a212b', fontSize: 12 }, confine: true },
+    legend: { textStyle: { color: '#98a2b3', fontSize: 10.5 }, top: 0, icon: 'roundRect', itemWidth: 14, itemHeight: 8 },
     grid: { left: 120, right: 24, top: 30, bottom: 14 },
-    xAxis: { type: 'value', splitLine: { lineStyle: { color: '#141d31' } }, axisLabel: { color: '#7c8aa5', fontSize: 10, formatter: function(v) { return compactMoney(v) } } },
-    yAxis: { type: 'category', data: names, axisLine: { lineStyle: { color: '#223052' } }, axisLabel: { color: '#c3cede', fontSize: 11 } },
+    xAxis: { type: 'value', splitLine: { lineStyle: { color: '#eef0f4' } }, axisLabel: { color: '#98a2b3', fontSize: 10, formatter: function(v) { return compactMoney(v) } } },
+    yAxis: { type: 'category', data: names, axisLine: { lineStyle: { color: '#e6e8ee' } }, axisLabel: { color: '#475467', fontSize: 11 } },
     series: series
   }
   chart('chartCharges').setOption(opt, true)
@@ -1085,15 +1132,15 @@ function renderChargesPie(comps, compLabels) {
   }
   var opt = {
     backgroundColor: 'transparent',
-    tooltip: { trigger: 'item', formatter: function(p) { return p.name + ': ' + fmtMoney(p.value, 2) }, backgroundColor: '#131c30', borderColor: '#223052', textStyle: { color: '#e5e9f0', fontSize: 12 }, confine: true },
-    legend: { bottom: 0, textStyle: { color: '#8b9bb4', fontSize: 10.5 }, icon: 'roundRect', itemWidth: 14, itemHeight: 8 },
+    tooltip: { trigger: 'item', formatter: function(p) { return p.name + ': ' + fmtMoney(p.value, 2) }, backgroundColor: '#ffffff', borderColor: '#e6e8ee', textStyle: { color: '#1a212b', fontSize: 12 }, confine: true },
+    legend: { bottom: 0, textStyle: { color: '#98a2b3', fontSize: 10.5 }, icon: 'roundRect', itemWidth: 14, itemHeight: 8 },
     series: [{
       type: 'pie',
       radius: ['42%', '68%'],
       center: ['50%', '44%'],
       data: data,
-      itemStyle: { borderColor: '#0f1522', borderWidth: 2 },
-      label: { color: '#8b9bb4', fontSize: 10.5, formatter: function(p) { return p.name + ' ' + p.percent.toFixed(0) + '%' } }
+      itemStyle: { borderColor: '#ffffff', borderWidth: 2 },
+      label: { color: '#98a2b3', fontSize: 10.5, formatter: function(p) { return p.name + ' ' + p.percent.toFixed(0) + '%' } }
     }]
   }
   chart('chartChargesPie').setOption(opt, true)
@@ -1171,11 +1218,11 @@ function renderCompare() {
   }
   var opt = {
     backgroundColor: 'transparent',
-    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: function(v) { return fmtMoney(v, 2) }, backgroundColor: '#131c30', borderColor: '#223052', textStyle: { color: '#e5e9f0', fontSize: 12 }, confine: true },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: function(v) { return fmtMoney(v, 2) }, backgroundColor: '#ffffff', borderColor: '#e6e8ee', textStyle: { color: '#1a212b', fontSize: 12 }, confine: true },
     grid: { left: 66, right: 20, top: 14, bottom: 24 },
-    xAxis: { type: 'category', data: names, axisLine: { lineStyle: { color: '#223052' } }, axisLabel: { color: '#8b9bb4', fontSize: 10.5 } },
-    yAxis: { type: 'value', splitLine: { lineStyle: { color: '#141d31' } }, axisLabel: { color: '#7c8aa5', fontSize: 10, formatter: function(v) { return compactMoney(v) } } },
-    series: [{ type: 'bar', data: data, barMaxWidth: 44, label: { show: true, position: 'top', color: '#c3cede', fontSize: 10, formatter: function(p) { return compactMoney(p.value) } } }]
+    xAxis: { type: 'category', data: names, axisLine: { lineStyle: { color: '#e6e8ee' } }, axisLabel: { color: '#98a2b3', fontSize: 10.5 } },
+    yAxis: { type: 'value', splitLine: { lineStyle: { color: '#eef0f4' } }, axisLabel: { color: '#98a2b3', fontSize: 10, formatter: function(v) { return compactMoney(v) } } },
+    series: [{ type: 'bar', data: data, barMaxWidth: 44, label: { show: true, position: 'top', color: '#475467', fontSize: 10, formatter: function(p) { return compactMoney(p.value) } } }]
   }
   chart('chartCompare').setOption(opt, true)
 }

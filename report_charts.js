@@ -118,8 +118,8 @@ echarts.init(document.getElementById('chart-ls-bar')).setOption(baseOpt({
   xAxis:{type:'category',data:['Direction'],show:false},
   yAxis:{type:'value'},
   series:[
-    {name:'Long P&L',type:'bar',data:[D.long_pnl],itemStyle:{color:'#4f8cff'},barMaxWidth:40},
-        {name:'Short P&L',type:'bar',data:[D.short_pnl],itemStyle:{color:'#ff6b6b'},barMaxWidth:40}
+    {name:'Long P&L',type:'bar',data:[{value:D.long_pnl,itemStyle:{color:D.long_pnl>=0?'#10b981':'#ef4444'}}],barMaxWidth:40},
+    {name:'Short P&L',type:'bar',data:[{value:D.short_pnl,itemStyle:{color:D.short_pnl>=0?'#10b981':'#ef4444'}}],barMaxWidth:40}
   ]
 }));
 
@@ -159,8 +159,9 @@ echarts.init(document.getElementById('chart-heatmap')).setOption({
 
 // --- Sweep Top 12 Table ---
 var sweepTbody = document.getElementById('sweep-table');
+function npClass(v){ return v>0?'pos':(v<0?'neg':'neu'); }
 sweepTbody.innerHTML = D.sweep_top12.map(function(r){
-  return '<tr><td>'+r.orb_bars+'</td><td>'+r.trend_ema+'</td><td>'+r.min_hold_bars+'</td><td>'+r.stop_atr+'</td><td>'+(r.net_profit>=0?'+':'')+r.net_profit.toFixed(2)+'</td><td>'+r.win_rate.toFixed(1)+'</td><td>'+r.pf.toFixed(2)+'</td><td>'+r.trades+'</td><td>'+r.max_dd.toFixed(2)+'</td></tr>';
+  return '<tr><td>'+r.orb_bars+'</td><td>'+r.trend_ema+'</td><td>'+r.min_hold_bars+'</td><td>'+r.stop_atr+'</td><td class="'+npClass(r.net_profit)+'">'+(r.net_profit>=0?'+':'')+r.net_profit.toFixed(2)+'</td><td>'+r.win_rate.toFixed(1)+'</td><td>'+r.pf.toFixed(2)+'</td><td>'+r.trades+'</td><td>'+r.max_dd.toFixed(2)+'</td></tr>';
 }).join('');
 
 // --- Sweep Count ---
@@ -171,7 +172,8 @@ function renderTradeTable(id, data){
   var t = document.getElementById(id);
   t.innerHTML = data.map(function(d){
     var cls = d.pnl>=0?'win':'loss';
-    return '<tr><td><span class="pill '+cls+'">'+d.dir+'</span></td><td>'+d.entry+'</td><td>'+d.pnl.toFixed(2)+'</td></tr>';
+    var vcl = d.pnl>=0?'pos':'neg';
+    return '<tr><td><span class="pill '+cls+'">'+d.dir+'</span></td><td>'+d.entry+'</td><td class="'+vcl+'">'+d.pnl.toFixed(2)+'</td></tr>';
   }).join('');
 }
 renderTradeTable('worst-table', D.worst_5);
@@ -180,6 +182,7 @@ renderTradeTable('best-table', D.best_5);
 // --- All Trades Table ---
 var allTbody = document.getElementById('all-trades-table');
 allTbody.innerHTML = D.trade_diag.map(function(t){
+  function vcl(v){ return v>=0?'pos':'neg'; }
   return '<tr>'+
     '<td>'+t.n+'</td>'+
     '<td><span class="pill '+(t.win?'win':'loss')+'">'+t.dir+'</span></td>'+
@@ -187,10 +190,10 @@ allTbody.innerHTML = D.trade_diag.map(function(t){
     '<td>'+t.exit_t+'</td>'+
     '<td>'+t.entry_p.toFixed(2)+'</td>'+
     '<td>'+t.exit_p.toFixed(2)+'</td>'+
-        '<td>'+(t.gross>=0?'+':'')+t.gross.toFixed(2)+'</td>'+
+    '<td class="'+vcl(t.gross)+'">'+(t.gross>=0?'+':'')+t.gross.toFixed(2)+'</td>'+
     '<td>'+(t.charges>0?'-':'')+t.charges.toFixed(2)+'</td>'+
-    '<td>'+(t.net>=0?'+':'')+t.net.toFixed(2)+'</td>'+
-    '<td>'+(t.cum>=0?'+':'')+t.cum.toFixed(2)+'</td>'+
+    '<td class="'+vcl(t.net)+'">'+(t.net>=0?'+':'')+t.net.toFixed(2)+'</td>'+
+    '<td class="'+vcl(t.cum)+'">'+(t.cum>=0?'+':'')+t.cum.toFixed(2)+'</td>'+
     '<td>'+t.held_h+'h</td>'+
   '</tr>';
 }).join('');
