@@ -38,6 +38,10 @@ from strategies import (
     SuzlonStrategy,
     HeroOrbStrategy,
 )
+from ai_strategy_writer import (
+    generate_and_validate_strategy,
+    load_generated_strategies,
+)
 
 logging.basicConfig(
     level=getattr(logging, config.LOG_LEVEL),
@@ -108,6 +112,15 @@ STRATEGY_SCHEMAS = {
         "session_end": {"label": "Session end", "type": "text", "default": "15:00"},
     },
 }
+
+
+# Reload AI-generated strategies accepted in previous sessions
+for _gen_key, _gen_cls, _gen_schema in load_generated_strategies():
+    STRATEGY_REGISTRY[_gen_key] = _gen_cls
+    STRATEGY_SCHEMAS[_gen_key] = _gen_schema
+    logger.info("Loaded AI-generated strategy from disk: %s", _gen_key)
+
+
 
 TIMEFRAMES: List[str] = [
     "ONE_MINUTE", "FIVE_MINUTE", "FIFTEEN_MINUTE",
@@ -540,6 +553,64 @@ def api_run():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5001))
+
+@app.route("/api/strategies/generate", methods=["POST"])
+def api_generate_strategy():
+    """
+    Body: { "description": "...", "name": "..." }
+    On success: registers the strategy immediately and writes to disk.
+    On failure: returns the validation/dry-run error so the UI can show it.
+    """
+    body = request.get_json(silent=True) or {}
+    description = str(body.get("description", "")).strip()
+    display_name = str(body.get("name", "")).strip()
+
+    if not description:
+        return jsonify({"ok": False, "error": "Please describe the strategy's entry/exit logic."}), 400
+    if not display_name:
+        return jsonify({"ok": False, "error": "Please give the strategy a short name."}), 400
+    if len(description) > 4000:
+        return jsonify({"ok": False, "error": "Description is too long (max 4000 characters)."}), 400
+
+    try:
+        result = generate_and_validate_strategy(description, display_name)
+    except Exception as exc:
+        logger.exception("AI strategy generation failed")
+        return jsonify({"ok": False, "error": f"Generation failed: {exc}"}), 500
+
+    if not result["ok"]:
+        return jsonify(result), 422
+
+    key = result["key"]
+    STRATEGY_REGISTRY[key] = result["strategy_class"]
+    STRATEGY_SCHEMAS[key] = result["params_schema"]
+    logger.info("Registered new AI-generated strategy: %s", key)
+
+    return jsonify({
+        "ok": True,
+        "key": key,
+        "name": result["name"],
+        "params": result["params_schema"],
+        "code": result["code"],
+    })
+
+
+@app.route("/api/strategies/generated", methods=["GET"])
+def api_list_generated_strategies():
+    """List AI-generated strategies currently registered."""
+    import ai_strategy_writer as _aiw
+    out = []
+    for entry in _aiw._load_manifest():
+        out.append({
+            "key": entry["slug"],
+            "name": entry["display_name"],
+            "description": entry["description"],
+            "created_at": entry["created_at"],
+        })
+    return jsonify({"ok": True, "strategies": out})
+
+
+
     print("=" * 60)
     print("  Backtest Studio - Web UI")
     print("  Open: http://127.0.0.1:%d" % port)
