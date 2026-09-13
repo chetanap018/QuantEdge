@@ -38,6 +38,7 @@ class PortfolioLeg:
     position_sizing: str = "fixed_capital_pct"
     sizing_params: Optional[Dict] = None
     weight: Optional[float] = None          # set automatically by allocate_weights
+    sector: str = ""                        # e.g. "BANK", "IT", "AUTO"
     engine_kwargs: Optional[Dict] = field(default_factory=dict)
 
 
@@ -116,6 +117,8 @@ class PortfolioBacktest:
         portfolio_max_drawdown_pct: Optional[float] = None,  # e.g. 25.0 = halt at -25%
         re_entry_recovery: float = 0.5,
         correlation_window: int = 60,
+        risk_limits=None,          # RiskLimits or dict; shared gate across legs
+        max_concurrent_positions: Optional[int] = None,  # shortcut knob
     ):
         if not legs:
             raise ValueError("PortfolioBacktest requires at least one leg.")
@@ -124,10 +127,39 @@ class PortfolioBacktest:
         self.portfolio_max_drawdown_pct = portfolio_max_drawdown_pct
         self.re_entry_recovery = re_entry_recovery
         self.correlation_window = correlation_window
+        import backtest_config as _bc
+        if max_concurrent_positions is None:
+            max_concurrent_positions = getattr(
+                _bc, "MAX_CONCURRENT_POSITIONS", None)
 
         weights = correlation_aware_weights(legs, window=correlation_window)
         for leg, w in zip(legs, weights):
             leg.weight = w
+
+        from risk_limits import RiskGate, RiskLimits
+        if risk_limits is not None:
+            lim = (risk_limits if isinstance(risk_limits, RiskLimits)
+                   else RiskLimits(**dict(risk_limits)))
+            if (max_concurrent_positions is not None
+                    and lim.max_concurrent_positions is None):
+                lim.max_concurrent_positions = max_concurrent_positions
+            self.risk_gate = RiskGate(lim, self.initial_capital)
+        else:
+            rl = RiskLimits(
+                max_exposure_per_symbol_pct=getattr(
+                    _bc, "MAX_EXPOSURE_PER_SYMBOL_PCT", None),
+                max_sector_exposure_pct=getattr(
+                    _bc, "MAX_SECTOR_EXPOSURE_PCT", None),
+                max_concurrent_positions=max_concurrent_positions,
+                max_daily_loss_pct=getattr(
+                    _bc, "MAX_DAILY_LOSS_PCT", None),
+                max_portfolio_heat_pct=getattr(
+                    _bc, "MAX_PORTFOLIO_HEAT_PCT", None),
+            )
+            self.risk_gate = (RiskGate(rl, self.initial_capital)
+                              if any(v is not None
+                                     for v in rl.to_dict().values())
+                              else None)
 
         # shared portfolio state
         self.portfolio_equity: List[float] = []
@@ -139,8 +171,27 @@ class PortfolioBacktest:
     # ------------------------------------------------------------------
     # gate API (called by engines)
     # ------------------------------------------------------------------
-    def allow_entry(self, symbol: str, timestamp, price: float, qty: int) -> bool:
+    def allow_entry(self, symbol: str, timestamp, price: float, qty: int,
+                    sector: str = "") -> bool:
         """Ask the portfolio whether a new position may be opened."""
+        notional = abs(float(price)) * int(qty)
+        if self.risk_gate is not None:
+            try:
+                eq = (self.portfolio_equity[-1]
+                      if self.portfolio_equity else self.initial_capital)
+                self.risk_gate.update_day(timestamp, float(eq))
+                ok, reason = self.risk_gate.can_open(
+                    symbol, notional, sector=sector or None,
+                    timestamp=timestamp, equity=float(eq))
+                if not ok:
+                    self.entry_halts.append({
+                        "symbol": symbol, "time": timestamp,
+                        "price": float(price), "quantity": int(qty),
+                        "reason": f"risk_gate:{reason}",
+                    })
+                    return False
+            except Exception:
+                pass
         if not self.gate_closed:
             return True
         self.entry_halts.append({
@@ -153,6 +204,11 @@ class PortfolioBacktest:
         """Engine feeds its equity snapshot; portfolio updates the gate."""
         self.portfolio_equity.append(equity)
         self.portfolio_equity_dates.append(timestamp)
+        if self.risk_gate is not None:
+            try:
+                self.risk_gate.update_day(timestamp, float(equity))
+            except Exception:
+                pass
 
         if equity > self.peak_equity:
             self.peak_equity = equity
@@ -189,11 +245,18 @@ class PortfolioBacktest:
                 sizing_params=size_params,
                 portfolio=self,               # enables gate integration
                 portfolio_symbol=leg.symbol,
+                symbol=leg.symbol,
+                sector=getattr(leg, "sector", "") or "",
                 **leg.engine_kwargs,
             )
             res = engine.run()
             res["allocated_capital"] = cap_alloc
             results[leg.symbol] = res
+            try:
+                if self.risk_gate is not None:
+                    self.risk_gate.register_close(leg.symbol)
+            except Exception:
+                pass
 
         final_equity = self.portfolio_equity[-1] if self.portfolio_equity else self.initial_capital
         combined = {
