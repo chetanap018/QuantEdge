@@ -143,6 +143,12 @@ class DataFetcher:
         start_date: str = None,
         end_date: str = None,
         token: str = None,
+        source: str = None,
+        fallback: bool = True,
+        validate_data: bool = True,
+        adjust_actions: dict = None,
+        universe=None,
+        on_quality: str = "warn",
     ) -> pd.DataFrame:
         """
         Fetch historical OHLCV data for a symbol.
@@ -162,6 +168,20 @@ class DataFetcher:
             End date in "YYYY-MM-DD" format.
         token : str
             Angel One instrument token (if None, will look up).
+        source : str
+            Preferred source: "angelone" | "yahoo" | "nse" | "csv" | "synthetic".
+            None = use config.DATA_SOURCES order.
+        fallback : bool
+            If True, try remaining sources when the preferred one is empty.
+        validate_data : bool
+            Run data-quality validation (gaps / stale / outliers / OHLC).
+        adjust_actions : dict
+            Corporate actions, e.g. {"splits": [("2023-07-01", 5)],
+            "bonuses": [...], "dividends": [("2023-08-16", 9.0)]}.
+        universe :
+            data_pit.UniverseHistory for point-in-time listing clipping.
+        on_quality : str
+            "warn" (log) | "raise" (error) | "ignore" when issues found.
 
         Returns
         -------
@@ -179,24 +199,106 @@ class DataFetcher:
         )
         cached = self._get_cached_data(cache_key)
         if cached is not None:
+            if validate_data or adjust_actions or universe is not None:
+                return self._post_process(
+                    cached, symbol, timeframe, validate_data=validate_data,
+                    adjust_actions=adjust_actions, universe=universe,
+                    on_quality=on_quality,
+                )
             return cached
 
-        # Fetch from API if connected
-        if self.connected:
-            try:
-                df = self._fetch_from_api(
-                    symbol, exchange, timeframe, start_date, end_date, token
-                )
-                if df is not None and not df.empty:
-                    self._cache_data(cache_key, df, source="live")
-                    return df
-            except Exception as e:
-                logger.error(f"API fetch failed: {e}. Falling back to synthetic data.")
+        # Multi-source fetch with fallback (Fix 2: no single-broker dependency).
+        df = self._fetch_multi_source(
+            symbol, exchange, timeframe, start_date, end_date, token,
+            source=source, fallback=fallback,
+        )
+        source_used = df.attrs.get("data_source", source or "angelone")
+        self._cache_data(cache_key, df, source=source_used)
+        return self._post_process(
+            df, symbol, timeframe, validate_data=validate_data,
+            adjust_actions=adjust_actions, universe=universe,
+            on_quality=on_quality,
+        )
 
-        # Fallback: generate synthetic data
-        logger.info("Generating synthetic data for testing.")
-        df = self._generate_synthetic_data(symbol, start_date, end_date, timeframe)
-        self._cache_data(cache_key, df, source="synthetic")
+    def _fetch_multi_source(self, symbol, exchange, timeframe, start_date,
+                            end_date, token, source=None, fallback=True):
+        """Try `source` first, then fall back through other adapters."""
+        order = list(getattr(config, "DATA_SOURCES", None) or ["angelone", "yahoo", "nse", "synthetic"])
+        if source:
+            order = [source] + [s for s in order if s != source]
+        if not fallback:
+            order = order[:1]
+        last = None
+        for name in order:
+            try:
+                df = self._fetch_from_source(name, symbol, exchange, timeframe,
+                                             start_date, end_date, token)
+                if df is not None and not df.empty:
+                    df.attrs["data_source"] = name
+                    if name != order[0]:
+                        logger.info("Data for %s served by fallback %s.", symbol, name)
+                    return df
+                last = df
+            except Exception as e:
+                logger.warning("Source %s failed for %s: %s", name, symbol, e)
+        if last is not None:
+            return last
+        from data_adapters import CANONICAL as _C
+        return pd.DataFrame(columns=_C)
+
+    def _fetch_from_source(self, name, symbol, exchange, timeframe,
+                           start_date, end_date, token):
+        if name in ("angel", "angelone", "angel_one", "smartapi"):
+            if self.connected and self.smart_api is not None:
+                fetched = self._fetch_from_api(symbol, exchange, timeframe, start_date, end_date, token)
+                if fetched is not None and not fetched.empty:
+                    return fetched
+            return pd.DataFrame(columns=["datetime", "open", "high", "low", "close", "volume"])
+        from data_adapters import get_adapter
+        adapter = get_adapter(name, smart_api=self.smart_api if self.connected else None,
+                              token=token, token_lookup=self._get_instrument_token)
+        kw = {}
+        if name == "csv":
+            kw["csv_dir"] = getattr(config, "DATA_CSV_DIR", "data")
+        return adapter.fetch(symbol, exchange, timeframe, start_date, end_date, **kw)
+
+    def _post_process(self, df, symbol, timeframe, validate_data=True,
+                      adjust_actions=None, universe=None, on_quality="warn"):
+        """Corporate-action adjust -> PIT clip -> quality validation."""
+        if df is None or df.empty:
+            return df
+        if adjust_actions:
+            try:
+                from data_adjust import adjust as _adjust
+                df = _adjust(df, splits=adjust_actions.get("splits"),
+                             bonuses=adjust_actions.get("bonuses"),
+                             dividends=adjust_actions.get("dividends"),
+                             reinvest_dividends=adjust_actions.get("reinvest_dividends", False))
+            except Exception as e:
+                logger.warning("Adjustment failed for %s: %s", symbol, e)
+        if universe is not None:
+            try:
+                from data_pit import clip_to_listing as _clip
+                df = _clip(df, symbol, universe)
+            except Exception as e:
+                logger.warning("PIT clip failed for %s: %s", symbol, e)
+        if validate_data:
+            try:
+                from data_quality import validate as _validate
+                report = _validate(df, timeframe=timeframe)
+                df.attrs["quality"] = report
+                if not report.get("ok"):
+                    msg = ("Data-quality issues for %s: gaps=%d stale=%d outliers=%d ohlc=%d"
+                           % (symbol, len(report.get("gaps", [])), len(report.get("stale_runs", [])),
+                              len(report.get("outliers", [])), report.get("ohlc_violations", 0)))
+                    if on_quality == "raise":
+                        raise ValueError(msg)
+                    elif on_quality == "warn":
+                        logger.warning(msg)
+            except ValueError:
+                raise
+            except Exception as e:
+                logger.warning("Validation failed for %s: %s", symbol, e)
         return df
 
     def _fetch_from_api(
