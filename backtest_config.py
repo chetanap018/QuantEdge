@@ -129,6 +129,17 @@ ENABLE_PLOT = True
 ENABLE_CSV = True
 
 # ============================================================
+# DATA SOURCE (Fix 2: multi-source with fallback)
+# ============================================================
+# Comma-separated priority order. First success wins.
+# Choices: angelone, yahoo, nse, csv, synthetic
+DATA_SOURCES = "angelone,yahoo,nse,synthetic"
+# Force a single source (empty = use priority order above)
+DATA_SOURCE = ""
+# Directory for csv source dumps (data/<SYMBOL>_<TIMEFRAME>.csv)
+DATA_CSV_DIR = "data"
+
+# ============================================================
 # DATA CACHING
 # ============================================================
 # Set to False to always fetch fresh data from API
