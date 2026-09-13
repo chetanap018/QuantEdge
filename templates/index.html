@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>QuantEdge - Strategy Backtesting Studio</title>
-<script src="/static/echarts.min.js"></script>
-<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<script src="/static/echarts.min.js?v={{ cache_version() }}"></script>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ cache_version() }}">
 <link rel="icon" href="{{ url_for('static', filename='logo.png') }}" type="image/png">
 </head>
 <body>

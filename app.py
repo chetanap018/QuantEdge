@@ -53,6 +53,27 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # ============================================================
+# Cache-busting for static assets -- appends file mtime as ?v=
+# so browsers always fetch fresh CSS/JS after code changes.
+# ============================================================
+def _asset_version() -> str:
+    import time as _time
+    static_dir = os.path.join(app.root_path, "static")
+    stamps = []
+    for name in ("style.css", "echarts.min.js"):
+        path = os.path.join(static_dir, name)
+        try:
+            stamps.append(int(os.path.getmtime(path)))
+        except OSError:
+            stamps.append(0)
+    return "v" + ".".join(str(s) for s in stamps)
+
+@app.context_processor
+def _inject_cache_version():
+    return {"cache_version": _asset_version}
+
+
+# ============================================================
 # Strategy registry + parameter schemas (drives the UI forms)
 # ============================================================
 STRATEGY_REGISTRY: Dict[str, type] = {
