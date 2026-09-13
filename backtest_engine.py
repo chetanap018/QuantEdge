@@ -45,6 +45,20 @@ import pandas as pd
 import numpy as np
 
 from strategies.base import Strategy
+from tailrisk import tail_report as _tail_report
+
+
+def _apply_corr_scale(engine, qty: int) -> int:
+    """Shrink qty when the engine's recent avg pairwise correlation is high."""
+    try:
+        avg_corr = engine.sizing_params.get("avg_corr")
+        if avg_corr is None:
+            return int(qty)
+        from sizing import correlation_scale as _cs
+        thr = float(engine.sizing_params.get("corr_threshold", 0.5))
+        return max(int(round(int(qty) * _cs(float(avg_corr), thr))), 0)
+    except Exception:
+        return int(qty)
 from broker_charges import calculate_charges, estimate_entry_charges
 from execution import ExecutionModel, default_execution
 from risk import RiskConfig, EXIT_REASON_SIGNAL, EXIT_REASON_STOP_LOSS, \
@@ -92,6 +106,9 @@ class BacktestEngine:
         sizing_params: Optional[Dict] = None,
         portfolio=None,
         portfolio_symbol: str = "",
+        sector: str = "",
+        risk_limits=None,
+        symbol: str = "",
     ):
         import backtest_config  # single source of truth for user-facing knobs
 
@@ -141,6 +158,43 @@ class BacktestEngine:
         self._extreme_price = 0.0           # best price since entry (for trailing stop)
         self.trades: List[Trade] = []
         self.equity_curve: List[float] = []
+
+        self.sector = sector or ""
+        self.symbol = symbol or portfolio_symbol or ""
+        if risk_limits is not None:
+            from risk_limits import RiskGate
+            self.risk_gate = risk_limits if isinstance(
+                risk_limits, RiskGate) else RiskGate(risk_limits,
+                                                    self.initial_capital)
+        else:
+            self.risk_gate = None
+            try:
+                from risk_limits import RiskGate as _RG, RiskLimits as _RL
+                _rl = _RL(
+                    max_exposure_per_symbol_pct=getattr(
+                        backtest_config, "MAX_EXPOSURE_PER_SYMBOL_PCT", None),
+                    max_sector_exposure_pct=getattr(
+                        backtest_config, "MAX_SECTOR_EXPOSURE_PCT", None),
+                    max_concurrent_positions=getattr(
+                        backtest_config, "MAX_CONCURRENT_POSITIONS", None),
+                    max_daily_loss_pct=getattr(
+                        backtest_config, "MAX_DAILY_LOSS_PCT", None),
+                    max_portfolio_heat_pct=getattr(
+                        backtest_config, "MAX_PORTFOLIO_HEAT_PCT", None),
+                )
+                if any(v is not None for v in _rl.to_dict().values()):
+                    self.risk_gate = _RG(_rl, self.initial_capital)
+            except Exception:
+                self.risk_gate = None
+
+        # Event-driven strategies hold bar-by-bar state -- reset it so
+        # re-runs (walk-forward windows, optimizer trials) start clean.
+        reset_fn = getattr(self.strategy, "reset", None)
+        if callable(reset_fn):
+            try:
+                reset_fn()
+            except Exception:
+                pass
         self.trade_log: List[Dict] = []
         self.exit_reason_counts = {"signal": 0, "stop_loss": 0,
                                    "take_profit": 0, "trailing_stop": 0, "eod": 0}
@@ -151,7 +205,8 @@ class BacktestEngine:
         return self.sizing_params.get(key, getattr(config, default))
 
     def _calculate_position_size(self, price: float, direction: str = "long",
-                                 stop_price: Optional[float] = None) -> int:
+                                 stop_price: Optional[float] = None,
+                                 bar_index: Optional[int] = None) -> int:
         """
         Calculate shares to trade based on sizing method.
 
@@ -180,7 +235,40 @@ class BacktestEngine:
 
             risk_amount = self.capital * risk_pct
             qty = int(risk_amount / risk_per_share)
-            return max(qty, 1)
+            _vt = self.sizing_params.get("vol_target")
+            if _vt and bar_index is not None:
+                try:
+                    from sizing import volatility_target_size as _vts
+                    _lb = int(self.sizing_params.get("vol_lookback", 20))
+                    _hist = self.data["close"].iloc[max(0, bar_index - _lb):bar_index + 1]
+                    _rets = _hist.pct_change().dropna()
+                    _rv = float(_rets.std()) if len(_rets) > 1 else 0.0
+                    qty = _vts(qty, _rv, float(_vt))
+                except Exception:
+                    pass
+            qty = _apply_corr_scale(self, qty)
+            return max(int(qty), 1)
+        elif self.position_sizing == "atr_stop":
+            # ATR-based sizing as a first-class method:
+            #   qty = (capital * risk_pct) / (atr_multiple * ATR)
+            # The engine also uses the same ATR distance as the stop
+            # (cached per entry bar), so rupee risk == capital * risk_pct.
+            from sizing import atr as _atr_fn, atr_position_size as _aps
+            _per = int(self.sizing_params.get("atr_period", 14))
+            _mult = float(self.sizing_params.get("atr_multiple", 2.0))
+            _rp = float(self._sizing_fallback("risk_pct", "DEFAULT_RISK_PCT"))
+            _idx = bar_index if bar_index is not None else len(self.data) - 1
+            try:
+                if getattr(self, "_atr_cache", None) is None:
+                    self._atr_cache = _atr_fn(self.data, period=_per)
+                _av = float(self._atr_cache.iloc[_idx])
+            except Exception:
+                _av = 0.0
+            if _av > 0:
+                return max(int(_apply_corr_scale(
+                    self, _aps(self.capital, _rp, price, _av,
+                               atr_multiple=_mult))), 1)
+            return 1
         else:
             logger.warning(f"Unknown sizing '{self.position_sizing}', using qty=1.")
             return 1
@@ -204,23 +292,58 @@ class BacktestEngine:
 
         signals_data = self.strategy.generate_signals(self.data)
 
-        pending = None  # signal scheduled for the NEXT bar's open
-        for _, row in signals_data.iterrows():
+        # Build ATR-stop cache when sizing needs it (atr_multiple set or
+        # position_sizing == "atr_stop").  The cache maps entry bar -> stop
+        # price so entries and risk exits use the SAME ATR distance.
+        try:
+            _need_atr = (self.position_sizing == "atr_stop"
+                         or self.sizing_params.get("atr_multiple") is not None)
+            if _need_atr:
+                from sizing import atr as _atr_fn
+                _per = int(self.sizing_params.get("atr_period", 14))
+                _mult = float(self.sizing_params.get("atr_multiple", 2.0))
+                _series = _atr_fn(self.data, period=_per)
+                self._atr_cache = _series
+                self._atr_stop_cache = {}
+                for _bi in range(len(self.data)):
+                    try:
+                        _av = float(_series.iloc[_bi])
+                    except Exception:
+                        continue
+                    if _av > 0:
+                        _px = float(self.data["close"].iloc[_bi])
+                        self._atr_stop_cache[_bi] = {
+                            "long": _px - _mult * _av,
+                            "short": _px + _mult * _av,
+                        }
+            else:
+                self._atr_stop_cache = {}
+        except Exception:
+            self._atr_stop_cache = {}
+
+        pending = None  # (signal, signal_bar_idx); filled at NEXT bar's open
+        signal_bar_idx = {i: i for i in range(len(signals_data))}
+        sig_positions = list(signals_data.index)
+        for pos, (_, row) in enumerate(signals_data.iterrows()):
             timestamp = row["datetime"]
             fill_base = row["open"] if self.execution.fill_policy == "next_open" else row["close"]
 
             # ---- 1) Execute any pending order (from bar i-1) at this bar's open ----
+            # pending = (signal, signal_bar_pos).  bar_index=pos threads the
+            # fill bar into sizing so ATR/vol-target use only data <= signal.
             if pending is not None:
-                signal = pending
+                signal, sig_pos = pending
                 pending = None
                 if signal == 1 and self.position <= 0:
                     if self.position < 0:
                         self._close_position(timestamp, fill_base, EXIT_REASON_SIGNAL)
-                    self._open_from_signal(timestamp, fill_base, row, "long")
+                    self._open_from_signal(timestamp, fill_base, row, "long",
+                                           bar_index=sig_pos)
                 elif signal == -1 and self.position >= 0:
                     if self.position > 0:
                         self._close_position(timestamp, fill_base, EXIT_REASON_SIGNAL)
-                    self._open_from_signal(timestamp, fill_base, row, "short")
+                    self._open_from_signal(timestamp, fill_base, row, "short",
+                                           bar_index=sig_pos)
 
             # ---- 2) Risk exits for the open position (checked intra-bar) ----
             if self.position != 0:
@@ -232,7 +355,7 @@ class BacktestEngine:
             # ---- 3) New signal at bar i -> schedule execution for next bar ----
             signal = row.get("signal", 0)
             if signal in (1, -1):
-                pending = signal
+                pending = (signal, pos)
 
             # ---- 4) Mark-to-market equity at bar close ----
             unrealized = 0.0
@@ -279,7 +402,8 @@ class BacktestEngine:
         })
         logger.debug(f"  OPEN {direction.upper()} @ {price:.2f} x {qty} (req {requested_qty})")
 
-    def _open_from_signal(self, timestamp, base_price: float, bar, direction: str):
+    def _open_from_signal(self, timestamp, base_price: float, bar, direction: str,
+                          bar_index: Optional[int] = None):
         """
         Open a position from a signal at the next bar's open.
 
@@ -289,10 +413,38 @@ class BacktestEngine:
             fill_price    = base +/- slippage (fixed bps or volatility)
         """
         stop_price = self.risk.stop_price(direction, base_price, None)
-        requested = self._calculate_position_size(base_price, direction, stop_price)
+        if stop_price is None and getattr(self, "_atr_stop_cache", None) \
+                and bar_index is not None:
+            try:
+                stop_price = self._atr_stop_cache.get(
+                    int(bar_index), {}).get(direction)
+            except Exception:
+                stop_price = None
+        requested = self._calculate_position_size(
+            base_price, direction, stop_price, bar_index=bar_index)
         if requested < 1:
             logger.debug("  no sizing -> skip")
             return
+
+        notional = abs(float(base_price)) * int(requested)
+        if getattr(self, "risk_gate", None) is not None:
+            try:
+                self.risk_gate.update_day(
+                    timestamp, float(self.capital))
+                ok, reason = self.risk_gate.can_open(
+                    self.symbol or self.portfolio_symbol or direction,
+                    notional, sector=self.sector or None,
+                    timestamp=timestamp, equity=float(self.capital))
+                if not ok:
+                    self.risk_gate.halts.append({
+                        "time": timestamp, "price": float(base_price),
+                        "quantity": int(requested),
+                        "reason": f"risk_gate:{reason}",
+                    })
+                    logger.debug(f"  ENTRY BLOCKED (risk gate: {reason})")
+                    return
+            except Exception:
+                pass
 
         if self.portfolio is not None:
             ok = self.portfolio.allow_entry(self.portfolio_symbol, timestamp, base_price, requested)
@@ -447,6 +599,8 @@ class BacktestEngine:
     def _compute_metrics(self) -> Dict:
         """Compute performance metrics from the backtest results."""
         if not self.trades:
+            tail0 = _tail_report([], 0.95)
+            gate0 = list(getattr(self.risk_gate, "halts", []) or []) if getattr(self, "risk_gate", None) is not None else []
             return {
                 "strategy": self.strategy.name,
                 "total_trades": 0,
@@ -456,6 +610,8 @@ class BacktestEngine:
                 "max_drawdown_pct": 0.0,
                 "win_rate": 0.0,
                 "profit_factor": 0.0,
+                **tail0,
+                "risk_gate_halts": gate0,
                 "total_charges": 0.0,
                 "net_profit": 0.0,
                 "final_capital": round(self.capital, 2),
@@ -523,8 +679,12 @@ class BacktestEngine:
         else:
             sharpe_ratio = 0.0
 
+        tail = _tail_report([t.net_pnl for t in self.trades], 0.95)
+        gate_halts = list(getattr(self.risk_gate, "halts", []) or []) if getattr(self, "risk_gate", None) is not None else []
         return {
             "strategy": self.strategy.name,
+            **tail,
+            "risk_gate_halts": gate_halts,
             "total_trades": len(self.trades),
             "winning_trades": len(wins),
             "losing_trades": len(losses),
