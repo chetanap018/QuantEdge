@@ -30,7 +30,7 @@ import requests
 from strategies.base import Strategy
 
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-3.6-flash"
 GEMINI_MAX_OUTPUT_TOKENS = 2000
 DRY_RUN_TIMEOUT_SECONDS = 8
 
