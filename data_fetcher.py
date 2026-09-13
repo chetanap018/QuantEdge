@@ -253,10 +253,13 @@ class DataFetcher:
         for name in order:
             if name == "synthetic" and not allow_synthetic:
                 raise RuntimeError(
-                    f"REFUSING synthetic data for {symbol}: all real sources "
-                    f"failed but synthetic (simulated GBM) data is not allowed. "
-                    f"Enable it explicitly (config.ALLOW_SYNTHETIC_DATA = True "
-                    f"or --allow-synthetic) if you want a simulated backtest."
+                    f"No data available for {symbol} ({timeframe} {start_date} to "
+                    f"{end_date}): all real sources failed and synthetic data is not "
+                    f"allowed. Possible fixes: (1) intraday Yahoo data only covers "
+                    f"the last 60 days — try a narrower date range or ONE_DAY "
+                    f"timeframe; (2) check Angel One credentials in .env; "
+                    f"(3) set ALLOW_SYNTHETIC_DATA=true in .env to allow simulated "
+                    f"data for testing."
                 )
             try:
                 df = self._fetch_from_source(name, symbol, exchange, timeframe,

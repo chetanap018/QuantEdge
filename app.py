@@ -501,6 +501,12 @@ def api_run():
             end_date=end_date,
             allow_synthetic=allow_synthetic,
         )
+    except RuntimeError as exc:
+        fetcher.logout()
+        return jsonify({"ok": False, "error": str(exc)}), 422
+    except Exception as exc:
+        fetcher.logout()
+        return jsonify({"ok": False, "error": f"Data fetch failed: {exc}"}), 502
     finally:
         fetcher.logout()
 
