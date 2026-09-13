@@ -89,6 +89,12 @@ DATA_SOURCES = ["angelone", "yahoo", "nse", "synthetic"]  # priority order
 DATA_SOURCE = None  # None = use DATA_SOURCES order; or force one, e.g. "yahoo"
 DATA_CSV_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 
+# Synthetic data is ONLY allowed when explicitly enabled.  If every real
+# source fails and this is False, fetching raises instead of silently
+# serving GBM-simulated prices that look like a real backtest.
+ALLOW_SYNTHETIC_DATA = bool(os.environ.get("ALLOW_SYNTHETIC_DATA", "").lower() in
+                            ("1", "true", "yes"))
+
 # ============================================================
 # Data Fetching
 # ============================================================
