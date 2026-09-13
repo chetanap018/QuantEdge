@@ -93,6 +93,16 @@ class MACDCrossover(Strategy):
         df = data.copy()
         ema_fast = df["close"].ewm(span=self.fast, adjust=False).mean()
         ema_slow = df["close"].ewm(span=self.slow, adjust=False).mean()
+        macd = ema_fast - ema_slow
+        signal_line = macd.ewm(span=self.signal, adjust=False).mean()
+        df["signal"] = 0
+        df.loc[macd > signal_line, "signal"] = 1
+        df.loc[macd < signal_line, "signal"] = -1
+        return df
+```
+"""
+
+
 def _slugify(name: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "_", name.strip().lower()).strip("_")
     return slug or f"strategy_{uuid.uuid4().hex[:8]}"
@@ -215,15 +225,6 @@ def load_strategy_class(code: str, class_name: str) -> Type[Strategy]:
     if cls is None or not (inspect.isclass(cls) and issubclass(cls, Strategy)):
         raise StrategyGenerationError(f"Class '{class_name}' not found or is not a Strategy subclass.")
     return cls
-
-        macd = ema_fast - ema_slow
-        signal_line = macd.ewm(span=self.signal, adjust=False).mean()
-        df["signal"] = 0
-        df.loc[macd > signal_line, "signal"] = 1
-        df.loc[macd < signal_line, "signal"] = -1
-        return df
-```
-"""
 
 
 def _synthetic_ohlcv(n: int = 300) -> pd.DataFrame:
