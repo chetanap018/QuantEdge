@@ -2,6 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>QuantEdge - Strategy Backtesting Studio</title>
 <script src="/static/echarts.min.js?v={{ cache_version() }}"></script>
@@ -29,6 +32,7 @@
   </div>
 </header>
 
+<div class="page-body">
 <div class="layout">
   <aside class="sidebar">
     <div class="sidebar-intro">
@@ -250,6 +254,7 @@
       </div>
     </div>
   </main>
+</div>
 </div>
 
 <div id="overlay">
@@ -689,17 +694,17 @@ function chart(id) {
 
 function axisBits() {
   return {
-    axisLine: { lineStyle: { color: '#e6e8ee' } },
-    axisLabel: { color: '#98a2b3', fontSize: 10.5, hideOverlap: true },
-    splitLine: { lineStyle: { color: '#eef0f4' } }
+    axisLine: { lineStyle: { color: '#2a2e39' } },
+    axisLabel: { color: '#50535e', fontSize: 10.5, hideOverlap: true, fontFamily: 'Inter' },
+    splitLine: { lineStyle: { color: '#1e222d' } }
   }
 }
 
 function tipBits() {
   return {
-    backgroundColor: '#ffffff',
-    borderColor: '#e6e8ee',
-    textStyle: { color: '#1a212b', fontSize: 12 },
+    backgroundColor: '#1e222d',
+    borderColor: '#2a2e39',
+    textStyle: { color: '#d1d4dc', fontSize: 12, fontFamily: 'Inter' },
     confine: true
   }
 }
@@ -707,7 +712,7 @@ function tipBits() {
 function zoomBits() {
   return [
     { type: 'inside' },
-    { type: 'slider', height: 16, bottom: 6, borderColor: '#e6e8ee', backgroundColor: '#ffffff', fillerColor: 'rgba(79, 140, 255, 0.15)', handleStyle: { color: '#4f8cff' }, textStyle: { color: '#98a2b3', fontSize: 9 } }
+    { type: 'slider', height: 16, bottom: 4, borderColor: '#2a2e39', backgroundColor: '#131722', fillerColor: 'rgba(41,98,255,0.18)', handleStyle: { color: '#2962ff' }, textStyle: { color: '#50535e', fontSize: 9 } }
   ]
 }
 
