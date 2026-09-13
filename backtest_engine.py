@@ -230,8 +230,17 @@ class BacktestEngine:
             if stop_price is not None and stop_price > 0 and stop_price != price:
                 risk_per_share = abs(price - stop_price)
             else:
-                # No stop configured -> fall back to nominal risk-per-unit figure.
+                # No real stop configured.  risk_based sizing is meaningless
+                # without a stop — warn loudly so the user notices instead of
+                # silently sizing off a nominal figure.
                 risk_per_share = risk_per_unit if risk_per_unit > 0 else price * 0.01
+                logger.warning(
+                    "risk_based sizing for %s has no real stop-loss level "
+                    "(stop_price=None). Using nominal risk_per_share=%.4f. "
+                    "Set STOP_LOSS_PCT or atr_multiple so sizing reflects the "
+                    "actual distance to the stop.",
+                    self.strategy.name, risk_per_share,
+                )
 
             risk_amount = self.capital * risk_pct
             qty = int(risk_amount / risk_per_share)
@@ -336,12 +345,14 @@ class BacktestEngine:
                 pending = None
                 if signal == 1 and self.position <= 0:
                     if self.position < 0:
-                        self._close_position(timestamp, fill_base, EXIT_REASON_SIGNAL)
+                        self._close_position(timestamp, fill_base, EXIT_REASON_SIGNAL,
+                                             side="sell", fill_bar=row)
                     self._open_from_signal(timestamp, fill_base, row, "long",
                                            bar_index=sig_pos)
                 elif signal == -1 and self.position >= 0:
                     if self.position > 0:
-                        self._close_position(timestamp, fill_base, EXIT_REASON_SIGNAL)
+                        self._close_position(timestamp, fill_base, EXIT_REASON_SIGNAL,
+                                             side="buy", fill_bar=row)
                     self._open_from_signal(timestamp, fill_base, row, "short",
                                            bar_index=sig_pos)
 
@@ -372,7 +383,10 @@ class BacktestEngine:
         # ---- Forced close at end of data ----
         if self.position != 0:
             last_row = signals_data.iloc[-1]
-            self._close_position(last_row["datetime"], last_row["close"], EXIT_REASON_END_OF_DATA)
+            eod_side = "sell" if self.position > 0 else "buy"
+            self._close_position(last_row["datetime"], last_row["close"],
+                                 EXIT_REASON_END_OF_DATA, side=eod_side,
+                                 fill_bar=last_row)
             if self.equity_curve:
                 self.equity_curve[-1] = self.capital
 
@@ -536,13 +550,31 @@ class BacktestEngine:
             return float(level) - impact
         return float(level) + impact
 
-    def _close_position(self, timestamp, price: float, reason: str = EXIT_REASON_SIGNAL):
-        """Close the current position."""
+    def _close_position(self, timestamp, price: float,
+                         reason: str = EXIT_REASON_SIGNAL,
+                         side: str = None, fill_bar=None):
+        """Close the current position.
+
+        When *side* and *fill_bar* are provided (signal-based exits), slippage
+        is applied adversarially to the fill price, matching the entry side:
+        signal exits also cross the spread, they don't get the clean open.
+        Risk exits computed by *_risk_exit_price* already include their own
+        slippage and should omit these params.
+        """
         if self.position == 0:
             return
 
         direction = "long" if self.position > 0 else "short"
         qty = abs(self.position)
+
+        # Apply slippage for signal-based exits (same as entry side)
+        slippage_cost = 0.0
+        if side is not None and fill_bar is not None:
+            fill_price = self.execution.fill_price_for(fill_bar, side,
+                                                        ref_price=price)
+            slippage_cost = abs(fill_price - price) * qty
+            self.total_slippage_cost += slippage_cost
+            price = fill_price
 
         buy_price = self.position_entry_price if direction == "long" else price
         sell_price = price if direction == "long" else self.position_entry_price
@@ -570,7 +602,7 @@ class BacktestEngine:
             charges_breakdown=charges,
             entry_fill_price=self.position_entry_price,
             exit_fill_price=price,
-            slippage_cost=0.0,
+            slippage_cost=round(slippage_cost, 4),
             exit_reason=reason,
             requested_quantity=getattr(self, "_open_requested_qty", qty),
             filled_quantity=qty,
