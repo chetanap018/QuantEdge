@@ -83,6 +83,13 @@ DEFAULT_USE_STRATEGY_LEVELS = True      # prefer long_stop/long_target columns
 DEFAULT_APPLY_SLIPPAGE_TO_RISK_EXITS = True
 
 # ============================================================
+# Data Sources (Fix 2: multi-source with fallback)
+# ============================================================
+DATA_SOURCES = ["angelone", "yahoo", "nse", "synthetic"]  # priority order
+DATA_SOURCE = None  # None = use DATA_SOURCES order; or force one, e.g. "yahoo"
+DATA_CSV_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+
+# ============================================================
 # Data Fetching
 # ============================================================
 CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache")
