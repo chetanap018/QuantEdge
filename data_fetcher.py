@@ -145,6 +145,7 @@ class DataFetcher:
         token: str = None,
         source: str = None,
         fallback: bool = True,
+        allow_synthetic: bool = None,
         validate_data: bool = True,
         adjust_actions: dict = None,
         universe=None,
@@ -173,6 +174,11 @@ class DataFetcher:
             None = use config.DATA_SOURCES order.
         fallback : bool
             If True, try remaining sources when the preferred one is empty.
+        allow_synthetic : bool, optional
+            If True, permit simulated GBM data (SyntheticAdapter) when every
+            real source fails.  If False (default from config.ALLOW_SYNTHETIC_DATA),
+            a hard error is raised instead so you can NEVER accidentally run a
+            backtest on fake data without explicitly opting in.
         validate_data : bool
             Run data-quality validation (gaps / stale / outliers / OHLC).
         adjust_actions : dict
@@ -193,12 +199,24 @@ class DataFetcher:
         if end_date is None:
             end_date = datetime.now().strftime("%Y-%m-%d")
 
+        if allow_synthetic is None:
+            allow_synthetic = bool(getattr(config, "ALLOW_SYNTHETIC_DATA", False))
+
         # Check cache first
         cache_key = self._get_cache_key(
             f"{exchange}:{symbol}", timeframe, start_date, end_date
         )
         cached = self._get_cached_data(cache_key)
         if cached is not None:
+            cached_source = getattr(cached, "attrs", {}).get("data_source")
+            if cached_source == "synthetic" and not allow_synthetic:
+                raise RuntimeError(
+                    f"REFUSING synthetic cached data for {symbol}: cached bars came "
+                    "from the synthetic (simulated GBM) source but synthetic data is "
+                    "not allowed. Enable it explicitly (config.ALLOW_SYNTHETIC_DATA "
+                    "= True or allow_synthetic=True) or clear the cache and retry a "
+                    "real source."
+                )
             if validate_data or adjust_actions or universe is not None:
                 return self._post_process(
                     cached, symbol, timeframe, validate_data=validate_data,
@@ -210,7 +228,7 @@ class DataFetcher:
         # Multi-source fetch with fallback (Fix 2: no single-broker dependency).
         df = self._fetch_multi_source(
             symbol, exchange, timeframe, start_date, end_date, token,
-            source=source, fallback=fallback,
+            source=source, fallback=fallback, allow_synthetic=allow_synthetic,
         )
         source_used = df.attrs.get("data_source", source or "angelone")
         self._cache_data(cache_key, df, source=source_used)
@@ -221,8 +239,11 @@ class DataFetcher:
         )
 
     def _fetch_multi_source(self, symbol, exchange, timeframe, start_date,
-                            end_date, token, source=None, fallback=True):
+                            end_date, token, source=None, fallback=True,
+                            allow_synthetic=None):
         """Try `source` first, then fall back through other adapters."""
+        if allow_synthetic is None:
+            allow_synthetic = bool(getattr(config, "ALLOW_SYNTHETIC_DATA", False))
         order = list(getattr(config, "DATA_SOURCES", None) or ["angelone", "yahoo", "nse", "synthetic"])
         if source:
             order = [source] + [s for s in order if s != source]
@@ -230,15 +251,30 @@ class DataFetcher:
             order = order[:1]
         last = None
         for name in order:
+            if name == "synthetic" and not allow_synthetic:
+                raise RuntimeError(
+                    f"REFUSING synthetic data for {symbol}: all real sources "
+                    f"failed but synthetic (simulated GBM) data is not allowed. "
+                    f"Enable it explicitly (config.ALLOW_SYNTHETIC_DATA = True "
+                    f"or --allow-synthetic) if you want a simulated backtest."
+                )
             try:
                 df = self._fetch_from_source(name, symbol, exchange, timeframe,
                                              start_date, end_date, token)
                 if df is not None and not df.empty:
                     df.attrs["data_source"] = name
-                    if name != order[0]:
+                    if name == "synthetic":
+                        logger.warning(
+                            "USING SYNTHETIC DATA for %s — these are simulated "
+                            "GBM prices, NOT real market results.",
+                            symbol,
+                        )
+                    elif name != order[0]:
                         logger.info("Data for %s served by fallback %s.", symbol, name)
                     return df
                 last = df
+            except RuntimeError:
+                raise
             except Exception as e:
                 logger.warning("Source %s failed for %s: %s", name, symbol, e)
         if last is not None:
