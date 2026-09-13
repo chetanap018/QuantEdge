@@ -124,7 +124,7 @@ for _gen_key, _gen_cls, _gen_schema in load_generated_strategies():
 
 TIMEFRAMES: List[str] = [
     "ONE_MINUTE", "FIVE_MINUTE", "FIFTEEN_MINUTE",
-    "THIRTY_MINUTE", "ONE_HOUR", "ONE_DAY", "ONE_WEEK", "ONEEEEMONTH",
+    "THIRTY_MINUTE", "ONE_HOUR", "ONE_DAY", "ONE_WEEK", "ONE_MONTH",
 ]
 
 EXCHANGES: List[str] = ["NSE", "BSE", "NFO", "MCX"]
