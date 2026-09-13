@@ -139,6 +139,11 @@ DATA_SOURCE = ""
 # Directory for csv source dumps (data/<SYMBOL>_<TIMEFRAME>.csv)
 DATA_CSV_DIR = "data"
 
+# Synthetic (simulated GBM) data is NEVER used unless this is set to True.
+# If every real source fails and this is False, the fetch raises instead of
+# silently backtesting on fake data.  Keep it False in production.
+ALLOW_SYNTHETIC_DATA = False
+
 # ============================================================
 # DATA CACHING
 # ============================================================
