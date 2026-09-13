@@ -84,6 +84,21 @@
       <span class="strategy-count">select one or more</span>
     </div>
     <div id="strategyList"></div>
+    <div class="ai-strategy-panel">
+      <div class="side-title">✨ Add a strategy by description</div>
+      <p class="ai-strategy-hint">
+        Describe entries and exits in plain English — e.g. "Go long when the 20-day EMA crosses above the 50-day EMA and RSI(14) is above 50. Exit when EMA crosses back below."
+      </p>
+      <input type="text" id="ai-strategy-name" placeholder="Strategy name (e.g. EMA + RSI Trend)" />
+      <textarea id="ai-strategy-desc" rows="4" placeholder="Describe the entry and exit rules..."></textarea>
+      <button class="btn-ghost" id="ai-strategy-generate-btn" onclick="generateAIStrategy()">
+        Generate strategy
+      </button>
+      <div id="ai-strategy-status" class="ai-strategy-status" style="display:none;"></div>
+      <pre id="ai-strategy-code" class="ai-strategy-code" style="display:none;"></pre>
+    </div>
+
+
     <button class="btn-ghost" id="resetBtn"><span>↺</span> Reset to config defaults</button>
     <div class="sidebar-foot">Defaults stay synced with<br><b>backtest_config.py</b></div>
   </aside>
@@ -1300,6 +1315,63 @@ document.addEventListener('DOMContentLoaded', function() {
   whenReady(boot)
 })
 </script>
+
+<script>
+async function generateAIStrategy() {
+  const name = document.getElementById('ai-strategy-name').value.trim();
+  const description = document.getElementById('ai-strategy-desc').value.trim();
+  const btn = document.getElementById('ai-strategy-generate-btn');
+  const statusEl = document.getElementById('ai-strategy-status');
+  const codeEl = document.getElementById('ai-strategy-code');
+
+  if (!name || !description) {
+    statusEl.style.display = 'block';
+    statusEl.className = 'ai-strategy-status error';
+    statusEl.textContent = 'Please fill in both a name and a description.';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Generating and testing...';
+  statusEl.style.display = 'block';
+  statusEl.className = 'ai-strategy-status pending';
+  statusEl.textContent = 'Calling the model, then dry-running the strategy on sample data. This can take a few seconds.';
+  codeEl.style.display = 'none';
+
+  try {
+    const res = await fetch('/api/strategies/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, description }),
+    });
+    const data = await res.json();
+
+    if (data.ok) {
+      statusEl.className = 'ai-strategy-status success';
+      statusEl.textContent = '"' + data.name + '" passed validation and is now available in the strategy list.';
+      codeEl.style.display = 'block';
+      codeEl.textContent = data.code;
+      if (typeof loadStrategies === 'function') {
+        loadStrategies();
+      }
+    } else {
+      statusEl.className = 'ai-strategy-status error';
+      statusEl.textContent = 'Rejected: ' + data.error;
+      if (data.code) {
+        codeEl.style.display = 'block';
+        codeEl.textContent = data.code;
+      }
+    }
+  } catch (err) {
+    statusEl.className = 'ai-strategy-status error';
+    statusEl.textContent = 'Request failed: ' + err.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Generate strategy';
+  }
+}
+</script>
+</body>
 </body>
 </html>
 
