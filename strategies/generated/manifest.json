@@ -1,0 +1,9 @@
+[
+  {
+    "slug": "suzlon_new",
+    "class_name": "SuzlonNewStrategy",
+    "display_name": "Suzlon_new",
+    "description": "can you go long when the 9 ema crosses 20 ema and go short the oposite and ext when 9 ema comes below the 20ema",
+    "created_at": "2026-09-15 19:27:00"
+  }
+]
