@@ -121,6 +121,7 @@ class DataFetcher:
 
         logger.info(f"Loading cached data from {cache_path}")
         df = pd.read_csv(cache_path, parse_dates=["datetime"])
+        df.attrs["data_source"] = meta.get("source", "unknown")
         return df
 
     def _cache_data(self, cache_key: str, df: pd.DataFrame, source: str = "live"):
@@ -306,6 +307,7 @@ class DataFetcher:
         """Corporate-action adjust -> PIT clip -> quality validation."""
         if df is None or df.empty:
             return df
+        src = df.attrs.get("data_source", "unknown")
         if adjust_actions:
             try:
                 from data_adjust import adjust as _adjust
@@ -338,6 +340,7 @@ class DataFetcher:
                 raise
             except Exception as e:
                 logger.warning("Validation failed for %s: %s", symbol, e)
+        df.attrs["data_source"] = df.attrs.get("data_source", src)
         return df
 
     def _fetch_from_api(
