@@ -2,11 +2,22 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>QuantEdge - Strategy Backtesting Studio</title>
+<script>
+  (function () {
+    // Set the color theme before first paint to avoid a flash.
+    try {
+      var t = localStorage.getItem('quantedge-theme');
+      if (t !== 'light' && t !== 'dark') {
+        t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) ? 'light' : 'dark';
+      }
+      document.documentElement.setAttribute('data-theme', t);
+    } catch (e) {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    }
+  })();
+</script>
 <script src="/static/echarts.min.js?v={{ cache_version() }}"></script>
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ cache_version() }}">
 <link rel="icon" href="{{ url_for('static', filename='logo.png') }}" type="image/png">
@@ -27,6 +38,10 @@
     <span class="topbar-muted">Zerodha charges &middot; Angel One data</span>
   </div>
   <div class="topbar-right">
+    <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle color theme" title="Toggle light / dark theme">
+      <svg class="ic ic-sun" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+      <svg class="ic ic-moon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    </button>
     <div class="status-pill" id="statusPill">Engine ready</div>
     <button class="btn-run" id="runBtn"><span class="run-icon">↗</span> Run Backtest</button>
   </div>
@@ -92,12 +107,22 @@
       <span class="ai-strategy-toggle-icon" id="ai-strategy-toggle-icon">+</span>
       <span>Add a strategy by description</span>
     </button>
-    <div class="ai-strategy-panel" id="ai-strategy-panel" style="display:none;">
+    <div class="ai-strategy-panel" id="ai-strategy-panel" data-desc-max-chars="{{ ai_desc_max_chars|default(4000) }}" data-max-attempts="{{ ai_max_attempts|default(3) }}" data-repair-delay="{{ ai_repair_delay|int|default(30) }}" style="display:none;">
       <p class="ai-strategy-hint">
-        Describe entries and exits in plain English — the model writes a tested strategy class you can run immediately.
+        Describe entries and exits in plain English — the model writes a tested strategy class you can run immediately. You can paste rules straight from a doc, PDF or chat; line breaks and bullets are kept. If a draft fails its automated checks, the exact error is sent back and the code is fixed automatically.
       </p>
       <input type="text" id="ai-strategy-name" placeholder="Strategy name (e.g. EMA + RSI Trend)" />
-      <textarea id="ai-strategy-desc" rows="4" placeholder="Go long when the 20-day EMA crosses above the 50-day EMA and RSI(14) is above 50. Exit long when EMA crosses back below. Mirror for shorts."></textarea>
+      <textarea id="ai-strategy-desc" rows="4"
+        oninput="autoGrowAIDesc(this)"
+        onpaste="handleAIDescPaste(event)"
+        placeholder="Go long when the 20-day EMA crosses above the 50-day EMA and RSI(14) is above 50. Exit long when EMA crosses back below. Mirror for shorts."></textarea>
+      <div class="ai-strategy-desc-meta">
+        <span class="ai-strategy-desc-count" id="ai-strategy-desc-count"></span>
+        <button type="button" class="ai-strategy-paste-btn" id="ai-strategy-paste-btn"
+          title="Append the text currently on your clipboard" onclick="pasteAIDescFromClipboard()">
+          Paste from clipboard
+        </button>
+      </div>
       <button class="btn-ghost ai-strategy-generate-btn" id="ai-strategy-generate-btn" onclick="generateAIStrategy()">
         Generate strategy
       </button>
@@ -117,6 +142,7 @@
           <span class="eyebrow">Latest experiment</span>
           <h2><span id="runTitle">Results</span></h2>
           <small id="runMeta"></small>
+          <div id="dataSrc" style="display:none;"></div>
         </div>
         <div class="result-focus">
           <label for="strategyPick">Focus strategy</label>
@@ -273,6 +299,36 @@ var currentTab = 'overview'
 
 function el(id) { return document.getElementById(id) }
 
+// Read a CSS custom property at runtime (used by ECharts, which can't use
+// var() directly). Optional alpha applies to hex values only.
+function tv(name, alpha) {
+  var v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  if (alpha !== undefined && v && v.charAt(0) === '#') {
+    var r = parseInt(v.slice(1, 3), 16)
+    var g = parseInt(v.slice(3, 5), 16)
+    var b = parseInt(v.slice(5, 7), 16)
+    return 'rgba(' + r + ', ' + g + ', ' + b + ', ' + alpha + ')'
+  }
+  return v
+}
+
+function currentTheme() {
+  return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'
+}
+
+function applyTheme(t) {
+  document.documentElement.setAttribute('data-theme', t)
+  try { localStorage.setItem('quantedge-theme', t) } catch (e) {}
+  if (STATE.last) {
+    var active = document.querySelector('.tab-btn.active')
+    renderTab(active ? active.getAttribute('data-tab') : 'overview')
+  }
+}
+
+function toggleTheme() {
+  applyTheme(currentTheme() === 'dark' ? 'light' : 'dark')
+}
+
 function fmtMoney(v, d) {
   if (d === undefined) { d = 0 }
   var neg = v < 0
@@ -391,6 +447,20 @@ function buildStrategies(meta) {
     }
     card.appendChild(head)
     card.appendChild(tog)
+    if (info.generated) {
+      var del = document.createElement('button')
+      del.type = 'button'
+      del.className = 'strat-delete'
+      del.textContent = 'delete'
+      del.title = 'Delete this generated strategy permanently'
+      del.setAttribute('data-del-key', key)
+      del.addEventListener('click', function(ev) {
+        ev.preventDefault()
+        ev.stopPropagation()
+        deleteStrategy(ev.currentTarget.getAttribute('data-del-key'))
+      })
+      card.appendChild(del)
+    }
     card.appendChild(holder)
     if (defStrats.indexOf(key) >= 0) {
       box.checked = true
@@ -471,8 +541,8 @@ function collectPayload() {
             params[pname] = null
           } else {
             if (ptype === 'int') { params[pname] = parseInt(inp.value, 10) }
-            if (ptype === 'float') { params[pname] = parseFloat(inp.value) }
-            if (ptype === 'text') { params[pname] = inp.value }
+            else if (ptype === 'float') { params[pname] = parseFloat(inp.value) }
+            else if (ptype === 'text') { params[pname] = inp.value }
           }
         }
         j = j + 1
@@ -538,7 +608,11 @@ function renderRun(res) {
   el('resultsArea').style.display = 'block'
   el('emptyState').style.display = 'none'
   el('runTitle').textContent = res.symbol
-  el('runMeta').textContent = res.bars + ' bars / ' + res.exchange + ' / ' + res.timeframe + ' / ' + res.start + ' to ' + res.end
+  var rangeTxt = res.data_first && res.data_last
+    ? 'actual bars ' + res.data_first.slice(0, 10) + ' to ' + res.data_last.slice(0, 10)
+    : res.start + ' to ' + res.end
+  el('runMeta').textContent = res.bars + ' bars / ' + res.exchange + ' / ' + res.timeframe + ' / ' + rangeTxt
+  renderDataSource(res)
   var pick = el('strategyPick')
   pick.innerHTML = ''
   var best = null
@@ -559,8 +633,30 @@ function renderRun(res) {
   }
   STATE.sel = best
   if (best) { pick.value = best }
-  setStatus('Last run: <b>' + res.symbol + '</b> / ' + res.bars + ' bars')
+  var srcBit = res.data_source_label || res.data_source || 'unknown'
+  setStatus('Last run: <b>' + res.symbol + '</b> / ' + res.bars + ' bars &middot; ' + srcBit)
   pickStrategy(best)
+}
+
+function renderDataSource(res) {
+  var box = el('dataSrc')
+  var src = res.data_source || 'unknown'
+  var label = res.data_source_label || src
+  var live = res.data_live !== false && src !== 'synthetic' && src !== 'unknown'
+  var cls = live ? 'data-src live' : 'data-src synth'
+  var dot = live ? '●' : '▲'
+  var hint = live
+    ? 'real market candles from ' + label
+    : (src === 'synthetic'
+        ? 'SIMULATED prices — not tradeable results. Enable a real source (Angel One / Yahoo / NSE).'
+        : 'source unconfirmed — treat results with caution.')
+  box.style.display = 'block'
+  box.className = cls
+  var rangeBit = (res.data_first && res.data_last)
+    ? ' &middot; ' + res.data_first.slice(0, 10) + ' → ' + res.data_last.slice(0, 10) : ''
+  box.innerHTML = '<span class="data-src-dot">' + dot + '</span> Data: <b>' + label + '</b>'
+    + ' <span class="data-src-bars">(' + res.bars + ' bars' + rangeBit + ')</span>'
+    + '<span class="data-src-hint" title="' + hint + '">?</span>'
 }
 
 function selResult() {
@@ -666,6 +762,7 @@ function boot() {
       el('fSizing').addEventListener('change', onSizingChange)
       el('runBtn').addEventListener('click', onRun)
       el('resetBtn').addEventListener('click', onReset)
+      el('themeToggle').addEventListener('click', toggleTheme)
       el('strategyPick').addEventListener('change', onPickChange)
       el('dirFilter').addEventListener('change', renderTrades)
       el('csvBtn').addEventListener('click', downloadCsv)
@@ -694,17 +791,17 @@ function chart(id) {
 
 function axisBits() {
   return {
-    axisLine: { lineStyle: { color: '#2a2e39' } },
-    axisLabel: { color: '#50535e', fontSize: 10.5, hideOverlap: true, fontFamily: 'Inter' },
-    splitLine: { lineStyle: { color: '#1e222d' } }
+    axisLine: { lineStyle: { color: tv('--border') } },
+    axisLabel: { color: tv('--text-secondary'), fontSize: 10.5, hideOverlap: true, fontFamily: 'Trebuchet MS' },
+    splitLine: { lineStyle: { color: tv('--chart-grid') } }
   }
 }
 
 function tipBits() {
   return {
-    backgroundColor: '#1e222d',
-    borderColor: '#2a2e39',
-    textStyle: { color: '#d1d4dc', fontSize: 12, fontFamily: 'Inter' },
+    backgroundColor: tv('--chart-tooltip-bg'),
+    borderColor: tv('--chart-tooltip-border'),
+    textStyle: { color: tv('--chart-tooltip-text'), fontSize: 12, fontFamily: 'Trebuchet MS' },
     confine: true
   }
 }
@@ -712,7 +809,7 @@ function tipBits() {
 function zoomBits() {
   return [
     { type: 'inside' },
-    { type: 'slider', height: 16, bottom: 4, borderColor: '#2a2e39', backgroundColor: '#131722', fillerColor: 'rgba(41,98,255,0.18)', handleStyle: { color: '#2962ff' }, textStyle: { color: '#50535e', fontSize: 9 } }
+    { type: 'slider', height: 16, bottom: 4, borderColor: tv('--border'), backgroundColor: tv('--bg-primary'), fillerColor: 'rgba(41,98,255,0.18)', handleStyle: { color: tv('--accent-blue') }, textStyle: { color: tv('--text-secondary'), fontSize: 9 } }
   ]
 }
 
@@ -757,10 +854,10 @@ function renderOverview() {
   var opt = {
     backgroundColor: 'transparent',
     tooltip: tip,
-    legend: { data: legend, textStyle: { color: '#98a2b3', fontSize: 11 }, top: 0, icon: 'roundRect', itemWidth: 14, itemHeight: 8 },
+    legend: { data: legend, textStyle: { color: tv('--text-secondary'), fontSize: 11 }, top: 0, icon: 'roundRect', itemWidth: 14, itemHeight: 8 },
     grid: { left: 66, right: 18, top: 32, bottom: 58 },
-    xAxis: { type: 'time', axisLine: { lineStyle: { color: '#e6e8ee' } }, axisLabel: { color: '#98a2b3', fontSize: 10.5, hideOverlap: true } },
-    yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: '#eef0f4' } }, axisLabel: { color: '#98a2b3', fontSize: 10.5, formatter: function(v) { return compactMoney(v) } } },
+    xAxis: { type: 'time', axisLine: { lineStyle: { color: tv('--border') } }, axisLabel: { color: tv('--text-secondary'), fontSize: 10.5, hideOverlap: true } },
+    yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: tv('--chart-grid') } }, axisLabel: { color: tv('--text-secondary'), fontSize: 10.5, formatter: function(v) { return compactMoney(v) } } },
     dataZoom: zoomBits(),
     series: series
   }
@@ -788,14 +885,14 @@ function renderDrawdown() {
     type: 'line',
     data: pts,
     showSymbol: false,
-    lineStyle: { width: 1.4, color: '#ef4444' },
-    itemStyle: { color: '#ef4444' },
+    lineStyle: { width: 1.4, color: tv('--down-red') },
+    itemStyle: { color: tv('--down-red') },
     areaStyle: {
       color: {
         type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
         colorStops: [
-          { offset: 0, color: 'rgba(239, 68, 68, 0.30)' },
-          { offset: 1, color: 'rgba(239, 68, 68, 0.02)' }
+          { offset: 0, color: tv('--down-red', 0.30) },
+          { offset: 1, color: tv('--down-red', 0.02) }
         ]
       }
     },
@@ -803,16 +900,16 @@ function renderDrawdown() {
       data: [{ type: 'min', name: 'Max DD' }],
       symbol: 'pin',
       symbolSize: 42,
-      itemStyle: { color: '#ef4444' },
+      itemStyle: { color: tv('--down-red') },
       label: { color: '#fff', fontSize: 9 }
     }
   }]
   var opt = {
     backgroundColor: 'transparent',
-    tooltip: { trigger: 'axis', valueFormatter: function(v) { return v.toFixed(2) + '%' }, backgroundColor: '#ffffff', borderColor: '#e6e8ee', textStyle: { color: '#1a212b', fontSize: 12 }, confine: true },
+    tooltip: { trigger: 'axis', valueFormatter: function(v) { return v.toFixed(2) + '%' }, backgroundColor: tv('--chart-tooltip-bg'), borderColor: tv('--border'), textStyle: { color: tv('--chart-tooltip-text'), fontSize: 12 }, confine: true },
     grid: { left: 46, right: 14, top: 16, bottom: 26 },
-    xAxis: { type: 'time', axisLine: { lineStyle: { color: '#e6e8ee' } }, axisLabel: { color: '#98a2b3', fontSize: 10, hideOverlap: true } },
-    yAxis: { type: 'value', splitLine: { lineStyle: { color: '#eef0f4' } }, axisLabel: { color: '#98a2b3', fontSize: 10, formatter: function(v) { return v + '%' } } },
+    xAxis: { type: 'time', axisLine: { lineStyle: { color: tv('--border') } }, axisLabel: { color: tv('--text-secondary'), fontSize: 10, hideOverlap: true } },
+    yAxis: { type: 'value', splitLine: { lineStyle: { color: tv('--chart-grid') } }, axisLabel: { color: tv('--text-secondary'), fontSize: 10, formatter: function(v) { return v + '%' } } },
     series: series
   }
   chart('chartDrawdown').setOption(opt, true)
@@ -823,16 +920,16 @@ function renderSide() {
   if (!one) { return }
   var ts = one.trade_stats
   var data = [
-    { name: 'Long (' + ts.long.count + ')', value: Math.abs(ts.long.pnl), real: ts.long.pnl, wr: ts.long.win_rate, itemStyle: { color: '#10b981' } },
-    { name: 'Short (' + ts.short.count + ')', value: Math.abs(ts.short.pnl), real: ts.short.pnl, wr: ts.short.win_rate, itemStyle: { color: '#ef4444' } }
+    { name: 'Long (' + ts.long.count + ')', value: Math.abs(ts.long.pnl), real: ts.long.pnl, wr: ts.long.win_rate, itemStyle: { color: tv('--up-green') } },
+    { name: 'Short (' + ts.short.count + ')', value: Math.abs(ts.short.pnl), real: ts.short.pnl, wr: ts.short.win_rate, itemStyle: { color: tv('--down-red') } }
   ]
   var opt = {
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'item',
-      backgroundColor: '#ffffff',
-      borderColor: '#e6e8ee',
-      textStyle: { color: '#1a212b', fontSize: 12 },
+      backgroundColor: tv('--chart-tooltip-bg'),
+      borderColor: tv('--border'),
+      textStyle: { color: tv('--chart-tooltip-text'), fontSize: 12 },
       confine: true,
       formatter: function(p) {
         var d = p.data
@@ -844,9 +941,9 @@ function renderSide() {
       radius: ['46%', '72%'],
       center: ['50%', '52%'],
       data: data,
-      itemStyle: { borderColor: '#ffffff', borderWidth: 2 },
-      label: { color: '#98a2b3', fontSize: 11, formatter: function(p) { return p.name } },
-      labelLine: { lineStyle: { color: '#e6e8ee' } }
+      itemStyle: { borderColor: tv('--chart-tooltip-bg'), borderWidth: 2 },
+      label: { color: tv('--text-secondary'), fontSize: 11, formatter: function(p) { return p.name } },
+      labelLine: { lineStyle: { color: tv('--border') } }
     }]
   }
   chart('chartSide').setOption(opt, true)
@@ -877,9 +974,9 @@ function renderMonthly() {
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'item',
-      backgroundColor: '#ffffff',
-      borderColor: '#e6e8ee',
-      textStyle: { color: '#1a212b', fontSize: 12 },
+      backgroundColor: tv('--chart-tooltip-bg'),
+      borderColor: tv('--border'),
+      textStyle: { color: tv('--chart-tooltip-text'), fontSize: 12 },
       confine: true,
       formatter: function(p) {
         var yr = years[p.value[0]]
@@ -888,8 +985,8 @@ function renderMonthly() {
       }
     },
     grid: { left: 42, right: 10, top: 10, bottom: 44 },
-    xAxis: { type: 'category', data: years, axisLine: { lineStyle: { color: '#e6e8ee' } }, axisTick: { show: false }, axisLabel: { color: '#98a2b3', fontSize: 10.5 } },
-    yAxis: { type: 'category', data: monthLabels, axisLine: { lineStyle: { color: '#e6e8ee' } }, axisTick: { show: false }, axisLabel: { color: '#98a2b3', fontSize: 10 } },
+    xAxis: { type: 'category', data: years, axisLine: { lineStyle: { color: tv('--border') } }, axisTick: { show: false }, axisLabel: { color: tv('--text-secondary'), fontSize: 10.5 } },
+    yAxis: { type: 'category', data: monthLabels, axisLine: { lineStyle: { color: tv('--border') } }, axisTick: { show: false }, axisLabel: { color: tv('--text-secondary'), fontSize: 10 } },
     visualMap: {
       min: -maxAbs,
       max: maxAbs,
@@ -898,13 +995,13 @@ function renderMonthly() {
       left: 'center',
       bottom: 2,
       itemHeight: 55,
-      textStyle: { color: '#98a2b3', fontSize: 9 },
-      inRange: { color: ['#dc2626', '#1c2433', '#10b981'] }
+      textStyle: { color: tv('--text-secondary'), fontSize: 9 },
+      inRange: { color: ['#dc2626', tv('--bg-panel'), tv('--up-green')] }
     },
     series: [{
       type: 'heatmap',
       data: data,
-      label: { show: true, fontSize: 9, color: '#1a212b', formatter: function(p) { return p.value[2] } }
+      label: { show: true, fontSize: 9, color: tv('--chart-tooltip-text'), formatter: function(p) { return p.value[2] } }
     }]
   }
   chart('chartMonthly').setOption(opt, true)
@@ -953,8 +1050,8 @@ function renderPrice() {
     tmap[b.t] = i
     var row = [b.o, b.c, b.l, b.h]
     candle.push(row)
-    var vc = 'rgba(239, 68, 68, 0.5)'
-    if (b.c >= b.o) { vc = 'rgba(16, 185, 129, 0.5)' }
+    var vc = tv('--down-red', 0.5)
+    if (b.c >= b.o) { vc = tv('--up-green', 0.5) }
     var vb = { value: b.v, itemStyle: { color: vc } }
     vols.push(vb)
     i = i + 1
@@ -988,30 +1085,30 @@ function renderPrice() {
   var opt = {
     backgroundColor: 'transparent',
     animation: false,
-    axisPointer: { link: [{ xAxisIndex: 'all' }], label: { backgroundColor: '#e6e8ee' } },
-    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' }, backgroundColor: '#ffffff', borderColor: '#e6e8ee', textStyle: { color: '#1a212b', fontSize: 12 }, confine: true },
-    legend: { data: ['Price', 'Long entry', 'Short entry', 'Exit'], textStyle: { color: '#98a2b3', fontSize: 11 }, top: 0, icon: 'roundRect', itemWidth: 14, itemHeight: 8 },
+    axisPointer: { link: [{ xAxisIndex: 'all' }], label: { backgroundColor: tv('--border') } },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' }, backgroundColor: tv('--chart-tooltip-bg'), borderColor: tv('--border'), textStyle: { color: tv('--chart-tooltip-text'), fontSize: 12 }, confine: true },
+    legend: { data: ['Price', 'Long entry', 'Short entry', 'Exit'], textStyle: { color: tv('--text-secondary'), fontSize: 11 }, top: 0, icon: 'roundRect', itemWidth: 14, itemHeight: 8 },
     grid: [
       { left: 62, right: 16, top: 28, height: '56%' },
       { left: 62, right: 16, top: '76%', height: '14%' }
     ],
     xAxis: [
-      { type: 'category', data: cats, gridIndex: 0, axisLine: { lineStyle: { color: '#e6e8ee' } }, axisLabel: { show: false }, axisTick: { show: false }, min: 'dataMin', max: 'dataMax' },
-      { type: 'category', data: cats, gridIndex: 1, axisLine: { lineStyle: { color: '#e6e8ee' } }, axisLabel: { color: '#98a2b3', fontSize: 10 }, axisTick: { show: false }, min: 'dataMin', max: 'dataMax' }
+      { type: 'category', data: cats, gridIndex: 0, axisLine: { lineStyle: { color: tv('--border') } }, axisLabel: { show: false }, axisTick: { show: false }, min: 'dataMin', max: 'dataMax' },
+      { type: 'category', data: cats, gridIndex: 1, axisLine: { lineStyle: { color: tv('--border') } }, axisLabel: { color: tv('--text-secondary'), fontSize: 10 }, axisTick: { show: false }, min: 'dataMin', max: 'dataMax' }
     ],
     yAxis: [
-      { scale: true, gridIndex: 0, splitLine: { lineStyle: { color: '#eef0f4' } }, axisLabel: { color: '#98a2b3', fontSize: 10 } },
-      { gridIndex: 1, splitLine: { show: false }, axisLabel: { color: '#98a2b3', fontSize: 9, formatter: function(v) { return compactMoney(v) } } }
+      { scale: true, gridIndex: 0, splitLine: { lineStyle: { color: tv('--chart-grid') } }, axisLabel: { color: tv('--text-secondary'), fontSize: 10 } },
+      { gridIndex: 1, splitLine: { show: false }, axisLabel: { color: tv('--text-secondary'), fontSize: 9, formatter: function(v) { return compactMoney(v) } } }
     ],
     dataZoom: [
       { type: 'inside', xAxisIndex: [0, 1] },
-      { type: 'slider', xAxisIndex: [0, 1], height: 16, bottom: 4, borderColor: '#e6e8ee', backgroundColor: '#ffffff', fillerColor: 'rgba(79, 140, 255, 0.15)', handleStyle: { color: '#4f8cff' }, textStyle: { color: '#98a2b3', fontSize: 9 } }
+      { type: 'slider', xAxisIndex: [0, 1], height: 16, bottom: 4, borderColor: tv('--border'), backgroundColor: tv('--chart-tooltip-bg'), fillerColor: 'rgba(79, 140, 255, 0.15)', handleStyle: { color: '#4f8cff' }, textStyle: { color: tv('--text-secondary'), fontSize: 9 } }
     ],
     series: [
-      { name: 'Price', type: 'candlestick', data: candle, xAxisIndex: 0, yAxisIndex: 0, itemStyle: { color: '#10b981', color0: '#ef4444', borderColor: '#10b981', borderColor0: '#ef4444' } },
+      { name: 'Price', type: 'candlestick', data: candle, xAxisIndex: 0, yAxisIndex: 0, itemStyle: { color: tv('--up-green'), color0: tv('--down-red'), borderColor: tv('--up-green'), borderColor0: tv('--down-red') } },
       { name: 'Volume', type: 'bar', data: vols, xAxisIndex: 1, yAxisIndex: 1 },
-      { name: 'Long entry', type: 'scatter', data: longPts, xAxisIndex: 0, yAxisIndex: 0, symbol: 'triangle', symbolSize: 12, itemStyle: { color: '#10b981' }, z: 10 },
-      { name: 'Short entry', type: 'scatter', data: shortPts, xAxisIndex: 0, yAxisIndex: 0, symbol: 'triangle', symbolRotate: 180, symbolSize: 12, itemStyle: { color: '#ef4444' }, z: 10 },
+      { name: 'Long entry', type: 'scatter', data: longPts, xAxisIndex: 0, yAxisIndex: 0, symbol: 'triangle', symbolSize: 12, itemStyle: { color: tv('--up-green') }, z: 10 },
+      { name: 'Short entry', type: 'scatter', data: shortPts, xAxisIndex: 0, yAxisIndex: 0, symbol: 'triangle', symbolRotate: 180, symbolSize: 12, itemStyle: { color: tv('--down-red') }, z: 10 },
       { name: 'Exit', type: 'scatter', data: exitPts, xAxisIndex: 0, yAxisIndex: 0, symbol: 'circle', symbolSize: 7, itemStyle: { color: '#94a3b8' }, z: 9 }
     ]
   }
@@ -1040,8 +1137,8 @@ function renderTrades() {
     var t = trades[i]
     cats.push(String(i + 1))
     if (filter === 'all' || t.direction === filter) {
-      var color = '#10b981'
-      if (t.net_pnl < 0) { color = '#ef4444' }
+      var color = tv('--up-green')
+      if (t.net_pnl < 0) { color = tv('--down-red') }
       var pt = { value: t.net_pnl, itemStyle: { color: color } }
       data.push(pt)
     } else {
@@ -1051,10 +1148,10 @@ function renderTrades() {
   }
   var opt = {
     backgroundColor: 'transparent',
-    tooltip: { trigger: 'axis', valueFormatter: function(v) { return fmtMoney(v, 2) }, backgroundColor: '#ffffff', borderColor: '#e6e8ee', textStyle: { color: '#1a212b', fontSize: 12 }, confine: true },
+    tooltip: { trigger: 'axis', valueFormatter: function(v) { return fmtMoney(v, 2) }, backgroundColor: tv('--chart-tooltip-bg'), borderColor: tv('--border'), textStyle: { color: tv('--chart-tooltip-text'), fontSize: 12 }, confine: true },
     grid: { left: 66, right: 14, top: 14, bottom: 26 },
-    xAxis: { type: 'category', data: cats, axisLine: { lineStyle: { color: '#e6e8ee' } }, axisLabel: { color: '#98a2b3', fontSize: 9, interval: Math.floor(cats.length / 12) || 0 } },
-    yAxis: { type: 'value', splitLine: { lineStyle: { color: '#eef0f4' } }, axisLabel: { color: '#98a2b3', fontSize: 10, formatter: function(v) { return compactMoney(v) } } },
+    xAxis: { type: 'category', data: cats, axisLine: { lineStyle: { color: tv('--border') } }, axisLabel: { color: tv('--text-secondary'), fontSize: 9, interval: Math.floor(cats.length / 12) || 0 } },
+    yAxis: { type: 'value', splitLine: { lineStyle: { color: tv('--chart-grid') } }, axisLabel: { color: tv('--text-secondary'), fontSize: 10, formatter: function(v) { return compactMoney(v) } } },
     series: [{ type: 'bar', data: data, barMaxWidth: 14 }]
   }
   chart('chartPnl').setOption(opt, true)
@@ -1092,7 +1189,7 @@ function renderTradeTable(one, filter) {
     rows.push(row)
   }
   if (rows.length === 0) {
-    rows.push('<tr><td colspan="11" style="text-align:center;color:#64748b">No trades</td></tr>')
+    rows.push('<tr><td colspan="11" style="text-align:center;color:' + tv('--text-secondary') + '">No trades</td></tr>')
   }
   tbody.innerHTML = rows.join('')
 }
@@ -1129,11 +1226,11 @@ function renderCharges() {
   }
   var opt = {
     backgroundColor: 'transparent',
-    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: function(v) { return fmtMoney(v, 2) }, backgroundColor: '#ffffff', borderColor: '#e6e8ee', textStyle: { color: '#1a212b', fontSize: 12 }, confine: true },
-    legend: { textStyle: { color: '#98a2b3', fontSize: 10.5 }, top: 0, icon: 'roundRect', itemWidth: 14, itemHeight: 8 },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: function(v) { return fmtMoney(v, 2) }, backgroundColor: tv('--chart-tooltip-bg'), borderColor: tv('--border'), textStyle: { color: tv('--chart-tooltip-text'), fontSize: 12 }, confine: true },
+    legend: { textStyle: { color: tv('--text-secondary'), fontSize: 10.5 }, top: 0, icon: 'roundRect', itemWidth: 14, itemHeight: 8 },
     grid: { left: 120, right: 24, top: 30, bottom: 14 },
-    xAxis: { type: 'value', splitLine: { lineStyle: { color: '#eef0f4' } }, axisLabel: { color: '#98a2b3', fontSize: 10, formatter: function(v) { return compactMoney(v) } } },
-    yAxis: { type: 'category', data: names, axisLine: { lineStyle: { color: '#e6e8ee' } }, axisLabel: { color: '#475467', fontSize: 11 } },
+    xAxis: { type: 'value', splitLine: { lineStyle: { color: tv('--chart-grid') } }, axisLabel: { color: tv('--text-secondary'), fontSize: 10, formatter: function(v) { return compactMoney(v) } } },
+    yAxis: { type: 'category', data: names, axisLine: { lineStyle: { color: tv('--border') } }, axisLabel: { color: tv('--chart-tooltip-text'), fontSize: 11 } },
     series: series
   }
   chart('chartCharges').setOption(opt, true)
@@ -1155,15 +1252,15 @@ function renderChargesPie(comps, compLabels) {
   }
   var opt = {
     backgroundColor: 'transparent',
-    tooltip: { trigger: 'item', formatter: function(p) { return p.name + ': ' + fmtMoney(p.value, 2) }, backgroundColor: '#ffffff', borderColor: '#e6e8ee', textStyle: { color: '#1a212b', fontSize: 12 }, confine: true },
-    legend: { bottom: 0, textStyle: { color: '#98a2b3', fontSize: 10.5 }, icon: 'roundRect', itemWidth: 14, itemHeight: 8 },
+    tooltip: { trigger: 'item', formatter: function(p) { return p.name + ': ' + fmtMoney(p.value, 2) }, backgroundColor: tv('--chart-tooltip-bg'), borderColor: tv('--border'), textStyle: { color: tv('--chart-tooltip-text'), fontSize: 12 }, confine: true },
+    legend: { bottom: 0, textStyle: { color: tv('--text-secondary'), fontSize: 10.5 }, icon: 'roundRect', itemWidth: 14, itemHeight: 8 },
     series: [{
       type: 'pie',
       radius: ['42%', '68%'],
       center: ['50%', '44%'],
       data: data,
-      itemStyle: { borderColor: '#ffffff', borderWidth: 2 },
-      label: { color: '#98a2b3', fontSize: 10.5, formatter: function(p) { return p.name + ' ' + p.percent.toFixed(0) + '%' } }
+      itemStyle: { borderColor: tv('--chart-tooltip-bg'), borderWidth: 2 },
+      label: { color: tv('--text-secondary'), fontSize: 10.5, formatter: function(p) { return p.name + ' ' + p.percent.toFixed(0) + '%' } }
     }]
   }
   chart('chartChargesPie').setOption(opt, true)
@@ -1210,7 +1307,7 @@ function renderCompare() {
   var mi = 0
   while (mi < mdefs.length) {
     var md = mdefs[mi]
-    var line = '<tr><td style="text-align:left;color:#8b9bb4">' + md[0] + '</td>'
+    var line = '<tr><td style="text-align:left;color:' + tv('--text-secondary') + '">' + md[0] + '</td>'
     i = 0
     while (i < names.length) {
       var mm = mlist[i]
@@ -1234,18 +1331,18 @@ function renderCompare() {
   i = 0
   while (i < mlist.length) {
     var np = mlist[i].net_profit
-    var color = '#10b981'
-    if (np < 0) { color = '#ef4444' }
+    var color = tv('--up-green')
+    if (np < 0) { color = tv('--down-red') }
     data.push({ value: np, itemStyle: { color: color } })
     i = i + 1
   }
   var opt = {
     backgroundColor: 'transparent',
-    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: function(v) { return fmtMoney(v, 2) }, backgroundColor: '#ffffff', borderColor: '#e6e8ee', textStyle: { color: '#1a212b', fontSize: 12 }, confine: true },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: function(v) { return fmtMoney(v, 2) }, backgroundColor: tv('--chart-tooltip-bg'), borderColor: tv('--border'), textStyle: { color: tv('--chart-tooltip-text'), fontSize: 12 }, confine: true },
     grid: { left: 66, right: 20, top: 14, bottom: 24 },
-    xAxis: { type: 'category', data: names, axisLine: { lineStyle: { color: '#e6e8ee' } }, axisLabel: { color: '#98a2b3', fontSize: 10.5 } },
-    yAxis: { type: 'value', splitLine: { lineStyle: { color: '#eef0f4' } }, axisLabel: { color: '#98a2b3', fontSize: 10, formatter: function(v) { return compactMoney(v) } } },
-    series: [{ type: 'bar', data: data, barMaxWidth: 44, label: { show: true, position: 'top', color: '#475467', fontSize: 10, formatter: function(p) { return compactMoney(p.value) } } }]
+    xAxis: { type: 'category', data: names, axisLine: { lineStyle: { color: tv('--border') } }, axisLabel: { color: tv('--text-secondary'), fontSize: 10.5 } },
+    yAxis: { type: 'value', splitLine: { lineStyle: { color: tv('--chart-grid') } }, axisLabel: { color: tv('--text-secondary'), fontSize: 10, formatter: function(v) { return compactMoney(v) } } },
+    series: [{ type: 'bar', data: data, barMaxWidth: 44, label: { show: true, position: 'top', color: tv('--chart-tooltip-text'), fontSize: 10, formatter: function(p) { return compactMoney(p.value) } } }]
   }
   chart('chartCompare').setOption(opt, true)
 }
@@ -1329,6 +1426,11 @@ function toggleAIStrategy() {
   if (panel.style.display === 'none') {
     panel.style.display = 'block';
     icon.textContent = '−';
+    // The box is sized from scrollHeight, which is 0 while display:none,
+    // so re-measure now that it is visible.
+    if (typeof autoGrowAIDesc === 'function') {
+      autoGrowAIDesc(document.getElementById('ai-strategy-desc'));
+    }
   } else {
     panel.style.display = 'none';
     icon.textContent = '+';
@@ -1339,6 +1441,195 @@ function toggleAIStrategy() {
 </script>
 
 <script>
+function refreshStrategiesAfterGeneration(newKey) {
+  fetch('/api/strategies')
+    .then(function(r) { return r.json() })
+    .then(function(meta) {
+      STATE.meta = meta;
+      buildStrategies(meta);
+      if (newKey) {
+        var card = document.querySelector('.strat-card[data-key="' + newKey + '"]');
+        if (card) {
+          var box = card.querySelector('.strat-check');
+          if (box && !box.checked) { box.checked = true; card.classList.add('on'); }
+          card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+      }
+    })
+    .catch(function(err) { console.error('strategy refresh failed', err) });
+}
+
+function deleteStrategy(key) {
+  if (!key) { return }
+  var card = document.querySelector('.strat-card[data-key="' + key + '"]')
+  var label = card ? card.querySelector('.strat-name').textContent : key
+  if (!window.confirm('Delete "' + label + '" permanently? This removes its file and it will not load on restart.')) { return }
+  fetch('/api/strategies/' + encodeURIComponent(key), { method: 'DELETE' })
+    .then(function(r) { return r.json() })
+    .then(function(data) {
+      if (!data.ok) {
+        toast(data.error || 'Delete failed', 'err')
+        return
+      }
+      toast('Deleted strategy: ' + label, 'ok')
+      refreshStrategiesAfterGeneration(null)
+    })
+    .catch(function(err) { toast('Delete failed: ' + err, 'err') })
+}
+
+// ---- Strategy description box: paste support, auto-grow, live limit ----
+// The limit is rendered by Jinja into #ai-strategy-panel's data attribute
+// (from app.py MAX_STRATEGY_DESCRIPTION_CHARS) so the UI and the API can never
+// disagree about what "too long" means. Keeping the server value in an HTML
+// attribute - rather than in this script - keeps the embedded JavaScript free
+// of template syntax, which the JS language server cannot parse.
+var AI_DESC_MAX_CHARS = (function () {
+  var panel = document.getElementById('ai-strategy-panel');
+  var raw = panel ? parseInt(panel.getAttribute('data-desc-max-chars'), 10) : NaN;
+  return isNaN(raw) || raw <= 0 ? 4000 : raw;
+})();
+// Model calls one generation may use: the first attempt plus the automatic
+// repair rounds. Same Jinja-rendered attribute pattern as the limit above.
+var AI_MAX_ATTEMPTS = (function () {
+  var panel = document.getElementById('ai-strategy-panel');
+  var raw = panel ? parseInt(panel.getAttribute('data-max-attempts'), 10) : NaN;
+  return isNaN(raw) || raw < 1 ? 3 : raw;
+})();
+// Seconds the server pauses between model calls so a repair cannot trip the
+// API's requests-per-minute quota. Display-only; the real value lives in
+// ai_strategy_writer.REPAIR_DELAY_SECONDS.
+var AI_REPAIR_DELAY = (function () {
+  var panel = document.getElementById('ai-strategy-panel');
+  var raw = panel ? parseFloat(panel.getAttribute('data-repair-delay')) : NaN;
+  return isNaN(raw) || raw < 0 ? 30 : Math.round(raw);
+})();
+// Keep in sync with max-height on .ai-strategy-panel textarea in style.css.
+var AI_DESC_MAX_HEIGHT = 340;
+
+function aiDescEl() { return document.getElementById('ai-strategy-desc'); }
+
+// Tidy pasted prose without destroying its meaning: normalise line endings,
+// drop trailing spaces, and collapse runs of blank lines (copy-paste from
+// PDFs/Word often injects those). Bullets and markdown markers survive.
+function normalizePastedText(text) {
+  return String(text == null ? '' : text)
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t]+$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+// Insert at the caret / replace the selection. Separators are only added when
+// they are actually wanted: a multi-line block gets its own lines so it never
+// fuses onto the prose, and appending a single line at the very end starts on
+// a new line. Editing mid-sentence stays inline.
+function insertAIDescText(el, text) {
+  var value = el.value;
+  var start = (el.selectionStart == null) ? value.length : el.selectionStart;
+  var end = (el.selectionEnd == null) ? value.length : el.selectionEnd;
+  var before = value.slice(0, start);
+  var after = value.slice(end);
+  var replacing = end > start;
+  var multiLine = text.indexOf('\n') !== -1;
+  var chunk = text;
+  if (multiLine) {
+    if (before.length && !replacing && !/\n$/.test(before)) { chunk = '\n' + chunk; }
+    if (after.length && !/\n$/.test(chunk)) { chunk = chunk + '\n'; }
+  } else if (!replacing && end === value.length && before.length && !/\n$/.test(before)) {
+    chunk = '\n' + chunk;
+  }
+  if (typeof el.setRangeText === 'function') {
+    el.setRangeText(chunk, start, end, 'end');
+  } else {
+    el.value = before + chunk + after;
+  }
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  autoGrowAIDesc(el);
+  el.focus();
+}
+
+// Ctrl/Cmd+V path. We only intercept when the clipboard is readable; if the
+// browser gives us nothing we return and let the native paste happen.
+function handleAIDescPaste(ev) {
+  var clip = ev.clipboardData || window.clipboardData;
+  if (!clip || typeof clip.getData !== 'function') { return; }
+  var raw = clip.getData('text/plain') || clip.getData('Text');
+  if (!raw) { return; }
+  ev.preventDefault();
+  insertAIDescText(ev.target, normalizePastedText(raw));
+}
+
+// Button path - works even where the host webview swallows Ctrl/Cmd+V.
+function pasteAIDescFromClipboard() {
+  var el = aiDescEl();
+  if (!el) { return; }
+  if (!navigator.clipboard || typeof navigator.clipboard.readText !== 'function') {
+    el.focus();
+    toast('This browser blocks clipboard reads - press Ctrl/Cmd+V inside the box instead.', 'err');
+    return;
+  }
+  navigator.clipboard.readText().then(function(text) {
+    if (!text || !text.trim()) {
+      el.focus();
+      toast('Clipboard is empty.', 'err');
+      return;
+    }
+    insertAIDescText(el, normalizePastedText(text));
+    toast('Pasted ' + text.length + ' characters.', 'ok');
+  }).catch(function() {
+    el.focus();
+    toast('Clipboard access denied - press Ctrl/Cmd+V inside the box instead.', 'err');
+  });
+}
+
+function updateAIDescMeta() {
+  var el = aiDescEl();
+  var out = document.getElementById('ai-strategy-desc-count');
+  if (!el || !out) { return; }
+  var used = el.value.trim().length;   // matches the strip() the API does
+  out.textContent = used + ' / ' + AI_DESC_MAX_CHARS + ' characters';
+  out.className = 'ai-strategy-desc-count';
+  if (used > AI_DESC_MAX_CHARS) {
+    out.className += ' over';
+    out.textContent += ' - over the limit';
+  } else if (used > AI_DESC_MAX_CHARS * 0.9) {
+    out.className += ' warn';
+  }
+}
+
+function autoGrowAIDesc(el) {
+  if (!el) { return; }
+  el.style.height = 'auto';
+  var height = Math.max(el.scrollHeight, 68);
+  el.style.height = Math.min(height, AI_DESC_MAX_HEIGHT) + 'px';
+  el.style.overflowY = el.scrollHeight > AI_DESC_MAX_HEIGHT ? 'auto' : 'hidden';
+  updateAIDescMeta();
+}
+
+// Show what happened on each model call when a generation needed repairs.
+// `attempts` comes straight from /api/strategies/generate. Built as DOM nodes
+// and set via textContent (never innerHTML) because the text contains model
+// output and Python exception strings.
+function renderAttemptLog(statusEl, attempts) {
+  if (!statusEl || !attempts || attempts.length < 2) { return; }
+  var log = document.createElement('div');
+  log.className = 'ai-strategy-attempts';
+  var i = 0;
+  while (i < attempts.length) {
+    var a = attempts[i];
+    var line = document.createElement('div');
+    line.className = 'ai-strategy-attempt ' + (a.ok ? 'ok' : 'bad');
+    var head = 'Attempt ' + (a.attempt || i + 1);
+    if (a.stage) { head += ' [' + String(a.stage).replace('_', ' ') + ']'; }
+    line.textContent = a.ok
+      ? head + ': passed - code accepted'
+      : head + ': ' + (a.error || 'rejected');
+    log.appendChild(line);
+    i = i + 1;
+  }
+  statusEl.appendChild(log);
+}
+
 async function generateAIStrategy() {
   const name = document.getElementById('ai-strategy-name').value.trim();
   const description = document.getElementById('ai-strategy-desc').value.trim();
@@ -1353,11 +1644,23 @@ async function generateAIStrategy() {
     return;
   }
 
+  if (description.length > AI_DESC_MAX_CHARS) {
+    statusEl.style.display = 'block';
+    statusEl.className = 'ai-strategy-status error';
+    statusEl.textContent = 'Description is ' + description.length + ' characters - the limit is '
+      + AI_DESC_MAX_CHARS + '. Trim it and try again.';
+    updateAIDescMeta();
+    return;
+  }
+
   btn.disabled = true;
   btn.textContent = 'Generating and testing...';
   statusEl.style.display = 'block';
   statusEl.className = 'ai-strategy-status pending';
-  statusEl.textContent = 'Calling the model, then dry-running the strategy on sample data. This can take a few seconds.';
+  statusEl.textContent = 'Calling the model, then dry-running the strategy on sample data. '
+    + 'A rejected draft is sent back and repaired automatically (up to ' + AI_MAX_ATTEMPTS
+    + ' attempts), with a ' + AI_REPAIR_DELAY + 's pause between calls so the API rate limit is not tripped. '
+    + 'This can take a few minutes. Waiting is expected - please leave the tab open.';
   codeEl.style.display = 'none';
 
   try {
@@ -1369,16 +1672,30 @@ async function generateAIStrategy() {
     const data = await res.json();
 
     if (data.ok) {
+      const used = data.attempts_used || 1;
+      const allowed = data.attempts_allowed || AI_MAX_ATTEMPTS;
       statusEl.className = 'ai-strategy-status success';
-      statusEl.textContent = '"' + data.name + '" passed validation and is now available in the strategy list.';
+      statusEl.textContent = used > 1
+        ? 'The first draft was rejected, so the error was sent back to the model. "'
+          + data.name + '" passed validation on attempt ' + used + ' of ' + allowed
+          + ' and is now available in the strategy list.'
+        : '"' + data.name + '" passed validation and is now available in the strategy list.';
+      renderAttemptLog(statusEl, data.attempts);
       codeEl.style.display = 'block';
       codeEl.textContent = data.code;
-      if (typeof loadStrategies === 'function') {
-        loadStrategies();
-      }
+      refreshStrategiesAfterGeneration(data.key);
     } else {
+      const used = data.attempts_used || AI_MAX_ATTEMPTS;
+      const attempts = data.attempts || [];
+      const throttled = attempts.some(function(a) { return a.stage === 'rate_limit'; });
       statusEl.className = 'ai-strategy-status error';
-      statusEl.textContent = 'Rejected: ' + data.error;
+      statusEl.textContent = 'Rejected after ' + used + ' attempt'
+        + (used === 1 ? '' : 's') + '. Last error: ' + data.error
+        + (throttled
+            ? ' The API throttled this key at least once, so some model calls never ran -'
+              + ' wait a minute and press Generate strategy again.'
+            : ' Try rephrasing the rules, or loosen the parameters it keeps getting wrong.');
+      renderAttemptLog(statusEl, attempts);
       if (data.code) {
         codeEl.style.display = 'block';
         codeEl.textContent = data.code;
@@ -1394,7 +1711,10 @@ async function generateAIStrategy() {
 }
 </script>
 <script>
-  document.addEventListener('DOMContentLoaded', boot);
+  document.addEventListener('DOMContentLoaded', function() {
+    // Prime the description box counter/size so the panel looks right on open.
+    if (typeof autoGrowAIDesc === 'function') { autoGrowAIDesc(aiDescEl()); }
+  });
 </script>
 </body>
 </html>
