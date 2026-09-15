@@ -26,6 +26,19 @@ from strategies.opening_candle import OpeningCandleStrategy
 from strategies.suzlon_intraday import SuzlonStrategy
 from strategies.hero_orb import HeroOrbStrategy
 
+try:                                       # optional: reloaded generated strategy
+    from strategies.ema_crossover import EmaCrossoverStrategy
+except Exception:                          # ema_crossover removed on disk
+    EmaCrossoverStrategy = None
+try:
+    from strategies.inverse_sma_crossover import InverseSmaCrossoverStrategy
+except Exception:
+    InverseSmaCrossoverStrategy = None
+
+from typing import Any, Dict
+
+from typing import Any, Dict
+
 __all__ = [
     "Strategy",
     "EventDrivenStrategy",
@@ -36,4 +49,10 @@ __all__ = [
     "OpeningCandleStrategy",
     "SuzlonStrategy",
     "HeroOrbStrategy",
+    "EmaCrossoverStrategy",
+    "InverseSmaCrossoverStrategy",
 ]
+
+from typing import Any, Dict
+
+GENERATED_STRATEGIES: Dict[str, Any] = {}
