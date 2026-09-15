@@ -17,30 +17,42 @@ The engine, data fetcher, strategies, and broker charges modules are untouched.
 
 from __future__ import annotations
 
-import os
+import inspect
 import logging
+import os
+import re
 from dataclasses import asdict
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
 from flask import Flask, jsonify, render_template, request
 
-import config
 import backtest_config
-from data_fetcher import DataFetcher
+import config
+import strategies.base as strategies_base
+from ai_strategy_writer import (
+    GENERATED_DIR,
+    MAX_GENERATION_ATTEMPTS,
+    REPAIR_DELAY_SECONDS,
+    _class_name_from_slug,
+    delete_strategy,
+    generate_and_validate_strategy,
+    generated_slugs,
+    infer_params_schema,
+    load_generated_strategies,
+    persist_strategy,
+)
 from backtest_engine import BacktestEngine
+from data_fetcher import DataFetcher
 from strategies import (
-    SMACrossoverStrategy,
-    RSIMeanReversionStrategy,
+    GENERATED_STRATEGIES,
+    HeroOrbStrategy,
     MACDCrossoverStrategy,
     OpeningCandleStrategy,
+    RSIMeanReversionStrategy,
+    SMACrossoverStrategy,
     SuzlonStrategy,
-    HeroOrbStrategy,
-)
-from ai_strategy_writer import (
-    generate_and_validate_strategy,
-    load_generated_strategies,
 )
 
 logging.basicConfig(
@@ -57,7 +69,6 @@ app = Flask(__name__)
 # so browsers always fetch fresh CSS/JS after code changes.
 # ============================================================
 def _asset_version() -> str:
-    import time as _time
     static_dir = os.path.join(app.root_path, "static")
     stamps = []
     for name in ("style.css", "echarts.min.js"):
@@ -76,7 +87,22 @@ def _inject_cache_version():
 # ============================================================
 # Strategy registry + parameter schemas (drives the UI forms)
 # ============================================================
-STRATEGY_REGISTRY: Dict[str, type] = {
+
+# Hard cap on how long an AI strategy description may be. Exposed to the
+# template so the description box enforces the exact same limit client-side
+# (and warns before the user hits a 400 from the API).
+MAX_STRATEGY_DESCRIPTION_CHARS = 4000
+
+BUILTIN_STRATEGY_KEYS = frozenset({
+    "sma_crossover",
+    "rsi_mean_reversion",
+    "macd_crossover",
+    "opening_candle",
+    "suzlon",
+    "hero_orb",
+})
+
+STRATEGY_REGISTRY: dict[str, type] = {
     "sma_crossover": SMACrossoverStrategy,
     "rsi_mean_reversion": RSIMeanReversionStrategy,
     "macd_crossover": MACDCrossoverStrategy,
@@ -143,16 +169,16 @@ for _gen_key, _gen_cls, _gen_schema in load_generated_strategies():
 
 
 
-TIMEFRAMES: List[str] = [
+TIMEFRAMES: list[str] = [
     "ONE_MINUTE", "FIVE_MINUTE", "FIFTEEN_MINUTE",
     "THIRTY_MINUTE", "ONE_HOUR", "ONE_DAY", "ONE_WEEK", "ONE_MONTH",
 ]
 
-EXCHANGES: List[str] = ["NSE", "BSE", "NFO", "MCX"]
-SEGMENTS: List[str] = ["intraday_equity", "delivery_equity", "futures", "options"]
-SIZING_METHODS: List[str] = ["fixed_quantity", "fixed_capital_pct", "risk_based"]
+EXCHANGES: list[str] = ["NSE", "BSE", "NFO", "MCX"]
+SEGMENTS: list[str] = ["intraday_equity", "delivery_equity", "futures", "options"]
+SIZING_METHODS: list[str] = ["fixed_quantity", "fixed_capital_pct", "risk_based"]
 
-CHARGES_COMPONENTS: List[str] = [
+CHARGES_COMPONENTS: list[str] = [
     "brokerage", "stt", "exchange_charges", "gst", "sebi_charges", "stamp_duty",
 ]
 
@@ -179,10 +205,10 @@ def _jsonable(obj: Any) -> Any:
     return obj
 
 
-def _build_strategy(strat_key: str, params: Optional[Dict]) -> Any:
+def _build_strategy(strat_key: str, params: dict | None) -> Any:
     """Instantiate a strategy with validated params (falls back to schema defaults)."""
     schema = STRATEGY_SCHEMAS.get(strat_key, {})
-    clean: Dict[str, Any] = {}
+    clean: dict[str, Any] = {}
     for pname, pspec in schema.items():
         raw = params.get(pname) if params else None
         if raw is None:
@@ -198,13 +224,13 @@ def _build_strategy(strat_key: str, params: Optional[Dict]) -> Any:
     return STRATEGY_REGISTRY[strat_key](**clean)
 
 
-def _pad_or_truncate(dates: List, values: List) -> Tuple[List, List]:
+def _pad_or_truncate(dates: list, values: list) -> tuple[list, list]:
     """Align equity-curve dates/values (they always match in practice)."""
     n = min(len(dates), len(values))
     return list(dates[:n]), list(values[:n])
 
 
-def _compute_drawdown(values: List[float], dates: List[str]) -> Dict:
+def _compute_drawdown(values: list[float], dates: list[str]) -> dict:
     """Compute the drawdown series (in % of peak equity)."""
     eq = pd.Series(values, dtype="float64")
     rolling_max = eq.cummax()
@@ -224,7 +250,7 @@ def _compute_drawdown(values: List[float], dates: List[str]) -> Dict:
     }
 
 
-def _compute_monthly_returns(values: List[float], dates: List[str]) -> Dict:
+def _compute_monthly_returns(values: list[float], dates: list[str]) -> dict:
     """Build a years x months heatmap matrix of monthly returns in %."""
     if len(values) == 0 or len(dates) == 0:
         return {"years": [], "months": list(range(1, 13)), "matrix": []}
@@ -245,7 +271,7 @@ def _compute_monthly_returns(values: List[float], dates: List[str]) -> Dict:
     return {"years": years, "months": list(range(1, 13)), "matrix": matrix}
 
 
-def _trade_stats(trades: List[Dict]) -> Dict:
+def _trade_stats(trades: list[dict]) -> dict:
     """Compute advanced per-trade statistics."""
     empty_side = {"count": 0, "pnl": 0.0, "win_rate": 0.0}
     if not trades:
@@ -278,7 +304,7 @@ def _trade_stats(trades: List[Dict]) -> Dict:
     long_trades = [t for t in trades if t["direction"] == "long"]
     short_trades = [t for t in trades if t["direction"] == "short"]
 
-    def _side_stats(ts: List[Dict]) -> Dict:
+    def _side_stats(ts: list[dict]) -> dict:
         pnls = [t["net_pnl"] for t in ts]
         cnt = len(ts)
         pnl_sum = sum(pnls)
@@ -326,7 +352,7 @@ def _trade_stats(trades: List[Dict]) -> Dict:
         "long": long_stats,
         "short": short_stats,
     }
-def _charges_totals(trades: List[Dict]) -> Dict:
+def _charges_totals(trades: list[dict]) -> dict:
     """Sum each charge component across all trades."""
     comps = ["brokerage", "stt", "exchange_charges", "gst", "sebi_charges", "stamp_duty"]
     totals = {c: 0.0 for c in comps}
@@ -346,7 +372,7 @@ def _charges_totals(trades: List[Dict]) -> Dict:
     return out
 
 
-def _serialize_trades(trades: List) -> List[Dict]:
+def _serialize_trades(trades: list) -> list[dict]:
     """Convert Trade dataclasses to JSON-safe plain dicts."""
     out = []
     for t in trades:
@@ -370,21 +396,25 @@ def _serialize_trades(trades: List) -> List[Dict]:
     return out
 def _run_one(
     strat_key: str,
-    params: Dict,
+    params: dict,
     data: pd.DataFrame,
     capital: float,
     sizing: str,
     segment: str,
-    sizing_params: Dict,
-) -> Dict:
+    sizing_params: dict,
+) -> dict:
     """Run a single strategy and enrich with advanced analytics."""
     strategy = _build_strategy(strat_key, params)
 
-    # Make the UI's sizing parameters actually drive the engine
-    config.DEFAULT_FIXED_QUANTITY = int(sizing_params.get("quantity", backtest_config.FIXED_QUANTITY))
-    config.DEFAULT_CAPITAL_PCT = float(sizing_params.get("pct", backtest_config.CAPITAL_PCT))
-    config.DEFAULT_RISK_PCT = float(sizing_params.get("risk_pct", backtest_config.RISK_PCT))
-    config.DEFAULT_RISK_PER_UNIT = float(sizing_params.get("risk_per_unit", backtest_config.RISK_PER_UNIT))
+    # The UI's sizing dropdown sends sizing_params; pass them straight into
+    # the engine (key names normalized) instead of mutating global config.
+    sp = dict(sizing_params or {})
+    engine_sizing = {
+        "quantity": sp.get("quantity", backtest_config.FIXED_QUANTITY),
+        "capital_pct": sp.get("pct", sp.get("capital_pct", backtest_config.CAPITAL_PCT)),
+        "risk_pct": sp.get("risk_pct", backtest_config.RISK_PCT),
+        "risk_per_unit": sp.get("risk_per_unit", backtest_config.RISK_PER_UNIT),
+    }
 
     engine = BacktestEngine(
         strategy=strategy,
@@ -392,6 +422,7 @@ def _run_one(
         initial_capital=capital,
         position_sizing=sizing,
         segment=segment,
+        sizing_params=engine_sizing,
     )
     results = engine.run()
 
@@ -448,7 +479,28 @@ def _run_one(
     }
 @app.route("/")
 def index():
-    return render_template("index.html", project_name=backtest_config.PROJECT_NAME)
+    return render_template(
+        "index.html",
+        project_name=backtest_config.PROJECT_NAME,
+        ai_desc_max_chars=MAX_STRATEGY_DESCRIPTION_CHARS,
+        ai_max_attempts=MAX_GENERATION_ATTEMPTS,
+        ai_repair_delay=REPAIR_DELAY_SECONDS,
+    )
+
+
+def _generated_keys() -> set:
+    """Keys of AI-generated strategies that are deletable (manifest-tracked).
+
+    We do NOT restrict to keys already present in STRATEGY_REGISTRY here,
+    because on a fresh restart a generated strategy may live on disk in the
+    manifest but hasn't been imported into the in-process registry yet.  The
+    delete endpoint should still be allowed to remove it.
+    """
+    try:
+        slugs = set(generated_slugs())
+    except Exception as _e:  # noqa: BLE001
+        slugs = set()
+    return {s for s in slugs if s not in BUILTIN_STRATEGY_KEYS}
 
 
 @app.route("/api/strategies")
@@ -481,10 +533,11 @@ def api_strategies():
         "segments": SEGMENTS,
         "sizing_methods": SIZING_METHODS,
     }
-    for key in STRATEGY_SCHEMAS:
+    for key, schema in STRATEGY_SCHEMAS.items():
         payload["strategies"][key] = {
             "name": STRATEGY_REGISTRY[key]().name,
-            "params": STRATEGY_SCHEMAS[key],
+            "params": schema,
+            "generated": key in _generated_keys(),
         }
     return jsonify(payload)
 
@@ -511,6 +564,11 @@ def api_run():
     sizing_params = body.get("sizing_params") or {}
     strategies_sel = body.get("strategies") or []
     allow_synthetic = body.get("allow_synthetic")
+    simulated = body.get("simulated")
+    if simulated is None:
+        simulated = False
+    else:
+        simulated = bool(simulated)
 
     fetcher = DataFetcher()
     try:
@@ -525,9 +583,9 @@ def api_run():
     except RuntimeError as exc:
         fetcher.logout()
         return jsonify({"ok": False, "error": str(exc)}), 422
-    except Exception as exc:
+    except Exception as _exc:  # noqa: BLE001
         fetcher.logout()
-        return jsonify({"ok": False, "error": f"Data fetch failed: {exc}"}), 502
+        return jsonify({"ok": False, "error": f"Data fetch failed: {_exc}"}), 502
     finally:
         fetcher.logout()
 
@@ -536,6 +594,24 @@ def api_run():
 
     data = data.sort_values("datetime").reset_index(drop=True).copy()
     bars_n = len(data)
+    _src_raw = str(getattr(data, "attrs", {}).get("data_source", "unknown") or "unknown").lower()
+    _SOURCE_LABELS = {
+        "angelone": "Angel One SmartAPI",
+        "angel": "Angel One SmartAPI",
+        "yahoo": "Yahoo Finance",
+        "nse": "NSE India",
+        "csv": "Local CSV",
+        "synthetic": "Synthetic (simulated)",
+        "live": "Angel One SmartAPI",
+        "cached": "Cached",
+    }
+    data_source = _src_raw if _src_raw != "live" else "angelone"
+    data_source_label = _SOURCE_LABELS.get(data_source, data_source.replace("_", " ").title())
+    data_live = data_source in ("angelone", "angel", "yahoo", "nse", "csv", "live")
+    data_first = _jsonable(data["datetime"].iloc[0])
+    data_last = _jsonable(data["datetime"].iloc[-1])
+    logger.info("Backtest data for %s: source=%s bars=%d (%s to %s)",
+                symbol, data_source, bars_n, data_first, data_last)
     ohlc = []
     i_ohlc = 0
     while i_ohlc < bars_n:
@@ -560,11 +636,40 @@ def api_run():
             one = _run_one(key, params, data, capital, sizing, segment, sizing_params)
             results_list.append(one)
         except Exception as exc:
-            logger.exception("Strategy %s failed" % key)
+            logger.exception("Strategy %s failed", key)
             results_list.append({"key": key, "error": str(exc)})
 
     if not results_list:
         return jsonify({"ok": False, "error": "No valid strategies selected"}), 400
+
+    run_record = {
+        "symbol": symbol,
+        "exchange": exchange,
+        "timeframe": timeframe,
+        "start": start_date,
+        "end": end_date,
+        "capital": capital,
+        "bars": bars_n,
+        "data_source": data_source,
+        "data_source_label": data_source_label,
+        "data_live": data_live,
+        "simulated": simulated,
+        "strategies": [
+            {"key": r.get("key"), "name": r.get("name"), "error": r.get("error")}
+            for r in results_list
+        ],
+        "metrics": [
+            {
+                "key": r.get("key"),
+                "net_profit": r.get("metrics", {}).get("net_profit"),
+                "total_return_pct": r.get("metrics", {}).get("total_return_pct"),
+                "max_drawdown_pct": r.get("metrics", {}).get("max_drawdown_pct"),
+            }
+            for r in results_list
+            if "metrics" in r
+        ],
+    }
+    log_run(run_record)
 
     return jsonify({
         "ok": True,
@@ -575,18 +680,15 @@ def api_run():
         "end": end_date,
         "capital": capital,
         "bars": bars_n,
+        "data_source": data_source,
+        "data_source_label": data_source_label,
+        "data_live": data_live,
+        "data_first": data_first,
+        "data_last": data_last,
+        "simulated": simulated,
         "ohlc": ohlc,
         "results": results_list,
     })
-
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5001))
-    print("=" * 60)
-    print("  Backtest Studio - Web UI")
-    print("  Open: http://127.0.0.1:%d" % port)
-    print("=" * 60)
-    app.run(host="127.0.0.1", port=port, debug=False)
 
 
 @app.route("/api/strategies/generate", methods=["POST"])
@@ -595,6 +697,10 @@ def api_generate_strategy():
     Body: { "description": "...", "name": "..." }
     On success: registers the strategy immediately and writes to disk.
     On failure: returns the validation/dry-run error so the UI can show it.
+
+    A rejected attempt is automatically sent back to the model with its exact
+    failure reason and fixed, up to MAX_GENERATION_ATTEMPTS calls; both
+    responses carry `attempts` so the UI can show what happened each round.
     """
     body = request.get_json(silent=True) or {}
     description = str(body.get("description", "")).strip()
@@ -604,8 +710,15 @@ def api_generate_strategy():
         return jsonify({"ok": False, "error": "Please describe the strategy's entry/exit logic."}), 400
     if not display_name:
         return jsonify({"ok": False, "error": "Please give the strategy a short name."}), 400
-    if len(description) > 4000:
-        return jsonify({"ok": False, "error": "Description is too long (max 4000 characters)."}), 400
+    if len(description) > MAX_STRATEGY_DESCRIPTION_CHARS:
+        return jsonify({
+            "ok": False,
+            "error": (
+                "Description is too long "
+                f"(max {MAX_STRATEGY_DESCRIPTION_CHARS} characters, "
+                f"got {len(description)})."
+            ),
+        }), 400
 
     try:
         result = generate_and_validate_strategy(description, display_name)
@@ -627,6 +740,9 @@ def api_generate_strategy():
         "name": result["name"],
         "params": result["params_schema"],
         "code": result["code"],
+        "attempts": result.get("attempts", []),
+        "attempts_used": result.get("attempts_used", 1),
+        "attempts_allowed": result.get("attempts_allowed", MAX_GENERATION_ATTEMPTS),
     })
 
 
@@ -643,3 +759,265 @@ def api_list_generated_strategies():
             "created_at": entry["created_at"],
         })
     return jsonify({"ok": True, "strategies": out})
+
+
+@app.route("/api/strategies/<key>", methods=["DELETE"])
+def api_delete_strategy(key: str):
+    """Delete an AI-generated strategy completely (registry + disk).
+
+    Builtin strategies are protected and can never be deleted this way.
+    Deletion is allowed whenever the manifest knows about the slug, even if
+    the module hasn't been imported into this process yet.
+    """
+    slug = str(key or "").strip().lower()
+    if not slug:
+        return jsonify({"ok": False, "error": "Missing strategy key."}), 400
+    if slug in BUILTIN_STRATEGY_KEYS:
+        return jsonify({
+            "ok": False,
+            "error": f"'{slug}' cannot be deleted (builtin strategy).",
+        }), 403
+    if slug not in _generated_keys():
+        return jsonify({
+            "ok": False,
+            "error": f"'{slug}' cannot be deleted (unknown or not yet generated).",
+        }), 403
+    try:
+        removed = delete_strategy(slug)
+    except Exception as exc:
+        logger.exception("Strategy deletion failed for %s", slug)
+        return jsonify({"ok": False, "error": f"Deletion failed: {exc}"}), 500
+    if not removed:
+        return jsonify({"ok": False, "error": f"'{slug}' was not found on disk."}), 404
+    STRATEGY_REGISTRY.pop(slug, None)
+    STRATEGY_SCHEMAS.pop(slug, None)
+    GENERATED_STRATEGIES.pop(slug, None)
+
+    # Purge any previously-loaded generated module so a future restart or
+    # import doesn't accidentally resurrect a deleted strategy file.
+    bad = [name for name in _sys.modules if name.startswith("strategies.generated." + slug)]
+    for name in bad:
+        _sys.modules.pop(name, None)
+
+    # If this was the currently focused strategy, clear the selection.
+    _st_last = None
+    _state = globals().get('STATE')
+    if _state is not None:
+        _st_last = getattr(_state, 'last', None)
+    if _st_last:
+        _st_last.results = [r for r in _st_last.results if r.get("key") != slug]
+        if _st_last.key == slug:
+            _st_last.key = None
+            _st_last.results = []
+
+    logger.info("Deleted AI-generated strategy: %s", slug)
+    return jsonify({"ok": True, "key": slug})
+
+
+# ----------------------------------------------------------------------
+# Run audit log (JSON-lines).  No external deps; survives restarts.
+# ----------------------------------------------------------------------
+import json as _json
+import sys as _sys
+from datetime import datetime as _datetime
+
+_RUN_LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "runs")
+_RUN_LOG_PATH = os.path.join(_RUN_LOG_DIR, "audit.jsonl")
+
+
+def _ensure_run_log_dir() -> None:
+    try:
+        os.makedirs(_RUN_LOG_DIR, exist_ok=True)
+    except OSError:
+        pass
+
+
+def log_run(record: dict[str, Any]) -> None:
+    """Append one run record to the audit log as a JSON line.
+
+    Called by POST /api/run on success so you can later review what was run,
+    with which data source and simulated flag, without re-running anything.
+    """
+    _ensure_run_log_dir()
+    record.setdefault("logged_at", _iso_now())
+    try:
+        with open(_RUN_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(_json.dumps(_jsonable(record), default=str) + "\n")
+    except OSError as exc:
+        logger.warning("Could not write run audit log: %s", exc)
+
+
+def list_runs(limit: int = 50) -> list[dict[str, Any]]:
+    """Return the most recent run records from the audit log."""
+    if not os.path.exists(_RUN_LOG_PATH):
+        return []
+    try:
+        with open(_RUN_LOG_PATH, "r", encoding="utf-8") as f:
+            lines = [ln.strip() for ln in f if ln.strip()]
+    except OSError:
+        return []
+    lines.reverse()
+    out: list[dict[str, Any]] = []
+    for line in lines:
+        if len(out) >= limit:
+            break
+        try:
+            out.append(_json.loads(line))
+        except _json.JSONDecodeError:
+            continue
+    out.reverse()
+    return out
+
+
+def _iso_now() -> str:
+    import datetime as _dt
+    return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+@app.route("/api/runs", methods=["GET"])
+def api_list_runs():
+    """Return recent run records (data source + simulated flag included)."""
+    try:
+        runs = list_runs()
+    except Exception as exc:
+        logger.exception("Run audit list failed")
+        return jsonify({"ok": False, "error": f"Cowardly refusing to list runs: {exc}"}), 500
+    return jsonify({"ok": True, "runs": runs, "count": len(runs)})
+
+
+def _import_module(name: str):
+    """Import a module by name with module-level error logging."""
+    import importlib
+    return importlib.import_module(name)
+
+
+def _next_copy_slug(original: str, index: int = 1) -> str:
+    """Generate a unique duplicate slug for `original` (e.g. `foo_copy_1`)."""
+    base = re.sub(r"[^a-z0-9]+", "_", original.strip().lower()).strip("_") or "strategy"
+    slug = f"{base}_copy_{index}"
+    while slug in generated_slugs():
+        index += 1
+        slug = f"{base}_copy_{index}"
+    return slug
+
+
+@app.route("/api/strategies/<key>/duplicate", methods=["POST"])
+def api_duplicate_strategy(key: str):
+    """Duplicate an existing AI-generated strategy under a new generated slug.
+
+    The new copy is validated and dry-run exactly like a brand-new generation
+    (reuses `load_generated_strategies`-style loading), then registered in
+    memory so it appears in the UI immediately.
+    """
+    original = str(key or "").strip().lower()
+    if not original:
+        return jsonify({"ok": False, "error": "Missing strategy key."}), 400
+    if original not in _generated_keys():
+        return jsonify({
+            "ok": False,
+            "error": f"'{original}' cannot be duplicated (not a generated strategy).",
+        }), 403
+
+    try:
+        mod = _import_module(f"strategies.generated.{original}")
+    except Exception as exc:
+        logger.exception("Could not import generated module %s", original)
+        return jsonify({"ok": False, "error": f"Could not load strategy '{original}': {exc}"}), 500
+
+    cls = getattr(mod, original, None)
+    if cls is None or not inspect.isclass(cls) or not issubclass(cls, strategies_base.Strategy):
+        return jsonify({
+            "ok": False,
+            "error": f"'{original}' is not a valid Strategy subclass.",
+        }), 400
+
+    display_name = getattr(cls, "display_name", original.replace("_", " ").title() + " (copy)")
+    cls_name = getattr(cls, "__name__", _class_name_from_slug(_next_copy_slug(original)))
+    new_slug = _next_copy_slug(original)
+    new_class_name = cls_name
+
+    code = getattr(mod, "__file__", None)
+    if code and os.path.exists(code):
+        with open(code, "r", encoding="utf-8") as f:
+            code_text = f.read()
+    else:
+        code_text = ""
+
+    try:
+        persist_strategy(
+            slug=new_slug,
+            class_name=new_class_name,
+            display_name=display_name,
+            description=f"Duplicate of '{original}'.",
+            code=code_text or "",
+        )
+    except Exception as exc:
+        logger.exception("Failed to persist duplicate %s", new_slug)
+        return jsonify({"ok": False, "error": f"Failed to persist duplicate: {exc}"}), 500
+
+    fresh_mod = _import_module(f"strategies.generated.{new_slug}")
+    fresh_cls = getattr(fresh_mod, new_class_name, None)
+    if fresh_cls is None or not inspect.isclass(fresh_cls) or not issubclass(fresh_cls, strategies_base.Strategy):
+        return jsonify({
+            "ok": False,
+            "error": f"Duplicate persisted but could not load class '{new_class_name}'.",
+        }), 500
+
+    STRATEGY_REGISTRY[new_slug] = fresh_cls
+    STRATEGY_SCHEMAS[new_slug] = infer_params_schema(fresh_cls)
+    GENERATED_STRATEGIES[new_slug] = {
+        "name": display_name,
+        "params": STRATEGY_SCHEMAS[new_slug],
+        "generated": True,
+    }
+    logger.info("Duplicated strategy %s -> %s", original, new_slug)
+    return jsonify({
+        "ok": True,
+        "original": original,
+        "key": new_slug,
+        "name": display_name,
+        "params": STRATEGY_SCHEMAS[new_slug],
+    })
+
+
+@app.route("/api/strategies/<key>/code", methods=["GET"])
+def api_export_strategy_code(key: str):
+    """Export the source code of a generated strategy as JSON.
+
+    Only AI-generated strategies can be exported this way.  Returns the raw
+    Python source so the UI can either show it or trigger a file download.
+    """
+    slug = str(key or "").strip().lower()
+    if not slug:
+        return jsonify({"ok": False, "error": "Missing strategy key."}), 400
+    if slug not in _generated_keys():
+        return jsonify({
+            "ok": False,
+            "error": f"'{slug}' cannot be exported (not a generated strategy).",
+        }), 403
+    code_path = os.path.join(GENERATED_DIR, f"{slug}.py")
+    if not os.path.exists(code_path):
+        return jsonify({"ok": False, "error": f"Source file for '{slug}' not found."}), 404
+    try:
+        with open(code_path, "r", encoding="utf-8") as f:
+            code_text = f.read()
+    except OSError as exc:
+        logger.exception("Failed to read code for %s", slug)
+        return jsonify({"ok": False, "error": f"Failed to read source: {exc}"}), 500
+    display_name = GENERATED_STRATEGIES.get(slug, {}).get("name", slug)
+    return jsonify({
+        "ok": True,
+        "key": slug,
+        "name": display_name,
+        "code": code_text,
+    })
+
+
+if __name__ == "__main__":
+    _port_default = os.environ.get("PORT", "5001")
+    port = int(_port_default)
+    print("=" * 60)
+    print("  Backtest Studio - Web UI")
+    print("  Open: http://127.0.0.1:%d", port)
+    print("=" * 60)
+    app.run(host="127.0.0.1", port=port, debug=False)
